@@ -1,15 +1,3 @@
-LOCAL = None
-try:
-	from google import colab
-	LOCAL = False
-except ImportError:
-	print("running locally")
-	LOCAL = True
-
-if not LOCAL:
-	import os
-	os.chdir("/content/drive/MyDrive/Colab Notebooks/CompetiClique")
-
 from competiclique_the_game import CompetiClique
 from simple_decoder_transformer import SimpleDecoderTransformer
 
