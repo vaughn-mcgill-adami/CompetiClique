@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from collections import deque
 
-from tqdm import tqdm
+from rich.progress import track
 
 from config import *
 
@@ -186,7 +186,7 @@ for batch in range(num_batches):
 	batch_stats = {'average_game_length' : deque(),
 						'max_game_length' : 0}
 
-	for episode in tqdm(range(batch_size)):
+	for episode in track(range(batch_size), description = 'Playing game: '):
 		#builder_observations = deque()
 		builder_actions_probs = deque()
 		builder_actions_chosen = deque()
@@ -383,6 +383,8 @@ for batch in range(num_batches):
 			}, BESTFORBIDDERPOLICYOPTPATH
 		)
 		best_so_far['forbidder'] = batch_stats['average_forbidder_return']
-	print(f"batch {batch}:", batch_stats)
+	print(f"Batch {batch} Statistics:")
+	for key, value in batch_stats.items():
+		print(key, value)
 	print()
 	print()
