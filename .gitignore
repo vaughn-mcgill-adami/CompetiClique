@@ -1,0 +1,4 @@
+#Ignore saved model weights
+*.pt
+#Ignore pycache
+__pycache__

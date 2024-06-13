@@ -35,7 +35,7 @@ class SimpleDecoderTransformer(nn.Module):
 	def forward(self, X):
 		mask = self.get_causal_mask(timesteps=X.shape[-1])
 		#print(mask)
-		
+		#print(X.shape)
 		X = self.vertex_embedding(X) + self.position_embedding(X)
 
 		#print(X.shape)

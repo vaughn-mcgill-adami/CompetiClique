@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import torch
 from torch.distributions.categorical import Categorical
+import torch.nn.functional as F
 
 from collections import deque
 
@@ -13,114 +14,142 @@ from tqdm import tqdm
 from config import *
 
 def edge_condition(x : torch.Tensor):
-  assert len(x) % 2 == 0
-  adjacency_list = dict()
+	assert len(x) % 2 == 0
+	adjacency_list = dict()
 
-  for k in range(len(x)//2):
-    u = x[2*k].item()
-    v = x[2*k+1].item()
+	for k in range(len(x)//2):
+		u = x[2*k].item()
+		v = x[2*k+1].item()
 
-    if u == v:
-      return False
-    if len(adjacency_list) == 0:
-      adjacency_list[u] = {v}
-      adjacency_list[v] = {u}
-    else:
-      if u not in adjacency_list.keys() and v not in adjacency_list.keys():
-        return False
-      if u in adjacency_list.keys():
-        if v in adjacency_list[u]:
-          return False
-      if v in adjacency_list.keys():
-        if u in adjacency_list[v]:
-          return False
-    adjacency_list[u] = {v}
-    adjacency_list[v] = {u}
-  return True
+		if u == v:
+			return False
+		if len(adjacency_list) == 0:
+			adjacency_list[u] = {v}
+			adjacency_list[v] = {u}
+		else:
+			if u not in adjacency_list.keys() and v not in adjacency_list.keys():
+				return False
+			if u in adjacency_list.keys():
+				if v in adjacency_list[u]:
+					return False
+			if v in adjacency_list.keys():
+				if u in adjacency_list[v]:
+					return False
+		adjacency_list[u] = {v}
+		adjacency_list[v] = {u}
+	return True
 
 def get_forbidden_mask(size):
-  assert size % 2 == 0
+	assert size % 2 == 0
 
-  k = 0
-  forbidden_mask = []
-  while k < size//2:
-    pair = torch.randint(low=AVAILABLE_TOKEN, high=FORBIDDEN_TOKEN+1, size=(2,)) # note these two tokens are consecutive.
-    if pair[0].item() != FORBIDDEN_TOKEN or pair[1].item() != FORBIDDEN_TOKEN:
-      k += 1
-      forbidden_mask.append(pair)
-  forbidden_mask = torch.cat(forbidden_mask, dim = 0)
-  return forbidden_mask
+	k = 0
+	forbidden_mask = []
+	while k < size//2:
+		pair = torch.randint(low=AVAILABLE_TOKEN, high=FORBIDDEN_TOKEN+1, size=(2,)) # note these two tokens are consecutive.
+		if pair[0].item() != FORBIDDEN_TOKEN or pair[1].item() != FORBIDDEN_TOKEN:
+			k += 1
+			forbidden_mask.append(pair)
+	forbidden_mask = torch.cat(forbidden_mask, dim = 0)
+	return forbidden_mask
 
 def generate_batch(batch_size : int, episode_length : int):
-  """
-  generates data for a subproblem, namely listing edges in an order so that at least one vertex of each edge is already present in the graph.
-  """
+	"""
+	generates data for a subproblem, namely listing edges in an order so that at least one vertex of each edge is already present in the graph.
+	"""
 
-  batch = []
+	batch = []
 
-  curr_episode = 0
-  while curr_episode < batch_size:
-    x = torch.randint(low=0,high=VERTEX_VOCABULARY,size=(2*episode_length,))
-    if edge_condition(x):
-      for end_observation_index in range(1,episode_length):
-        forbidden_mask = get_forbidden_mask(size=2*end_observation_index)
-        xp = torch.cat((
-            torch.flatten(torch.stack((x[:2*end_observation_index],forbidden_mask), dim=0).transpose(-1,-2)),
-            torch.tensor([END_OBSERVATION_TOKEN]),
-            x[2*end_observation_index:]), dim=0)
-        batch.append(xp)
-      curr_episode += 1
-  return torch.nested.nested_tensor(batch).to_padded_tensor(padding=PAD_TOKEN)
+	curr_episode = 0
+	while curr_episode < batch_size:
+		x = torch.randint(low=0,high=VERTEX_VOCABULARY,size=(2*episode_length,))
+		if edge_condition(x):
+			for end_observation_index in range(1,episode_length):
+				forbidden_mask = get_forbidden_mask(size=2*end_observation_index)
+				xp = torch.cat((
+						torch.flatten(torch.stack((x[:2*end_observation_index],forbidden_mask), dim=0).transpose(-1,-2)),
+						torch.tensor([END_OBSERVATION_TOKEN]),
+						x[2*end_observation_index:]), dim=0)
+				batch.append(xp)
+			curr_episode += 1
+	return torch.nested.nested_tensor(batch).to_padded_tensor(padding=PAD_TOKEN)
 
-embedding_dim = 64
-mlp_dim = 96
-
-device = torch.device("cpu")
-
-model = SimpleDecoderTransformer(L=2, H=4, d_e=embedding_dim, d_mlp = mlp_dim).to(device)
+"""
 pre_training_optimizer = torch.optim.Adam(params = model.parameters(), lr = 0.001)
+
+
+Pretraining like this seems to actually make the RL training harder...
 
 batch_size = 1000
 episode_length = 10
 
 epochs = 100
+loss = torch.tensor(float('inf'))
+
+PATH = "supervised_pretrained_model.pt"
+
+prevloss = None
 
 for epoch in range(epochs):
-  batch = generate_batch(batch_size=batch_size, episode_length=episode_length).to(device)
+	prevloss = loss.item()
+	batch = generate_batch(batch_size=batch_size, episode_length=episode_length).to(device)
 
-  Y = batch[:-1]
-  X = batch[1:]
+	Y = batch[:-1]
+	X = batch[1:]
 
-  indices = torch.arange(N_TOKENS).to(device)[None, None, :] == Y[:, :, None]
-  loss = -torch.mean(torch.log(model(X)[indices]))
+	indices = torch.arange(N_TOKENS).to(device)[None, None, :] == Y[:, :, None]
+	loss = -torch.mean(torch.log(model(X)[indices]))
 
-  loss.backward()
-  pre_training_optimizer.step()
-  pre_training_optimizer.zero_grad()
+	loss.backward()
+	pre_training_optimizer.step()
+	pre_training_optimizer.zero_grad()
 
-  print(loss.item())
-
-PATH = "/content/drive/MyDrive/Colab Notebooks/CompetiClique/supervised_pretrained_model.pt"
-
-torch.save({
-            'epoch': epochs,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': pre_training_optimizer.state_dict()
-            }, PATH)
+	stop = prevloss < loss.item()
+	if epoch % 5 == 0 or stop or epoch == epochs-1:
+		torch.save({
+			'epoch': epochs,
+			'loss': loss.item(),
+			'model_state_dict': model.state_dict(),
+			'optimizer_state_dict': pre_training_optimizer.state_dict()
+			}, PATH)
+		if stop:
+			break
+			 
+	print(epoch, loss.item())
 
 model.load_state_dict(torch.load(PATH)['model_state_dict'])
+#model.eval()
+
+if eval_only:
+		model.eval()
+else:
+		model.train() 
+"""
+embedding_dim = 64
+mlp_dim = 96
+
+device = torch.device("cpu")
+
+model = SimpleDecoderTransformer(L=6, H=4, d_e=embedding_dim, d_mlp = mlp_dim).to(device)
+
 model.train()
 
-eval_only = True
+eval_only = False
 
-num_batches = 1
-batch_size = 5000
-lr = 0.05
+num_batches = 100
+batch_size = 1000
+lr = 0.002
 discount_factor = 0.9
 
+BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
+BESTFORBIDDERPOLICYOPTPATH = "best_forbidder_policy_opt.pt"
+BUILDERPOLICYOPTPATH = "builder_policy_opt.pt"
+FORBIDDERPOLICYOPTPATH = "forbidder_policy_opt.pt"
+
+LOAD_SAVED_WEIGHTS = True
+
 game = CompetiClique(clique_size = 3,
-							edges_per_builder_turn=2,
-						vertices_per_forbidder_turn=2
+							edges_per_builder_turn=1,
+						vertices_per_forbidder_turn=1
 						)
 
 """
@@ -129,11 +158,21 @@ Vanilla policy gradient implementation.
 builder_policy = deepcopy(model).to(device)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 forbidder_policy = deepcopy(model).to(device)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 
+if LOAD_SAVED_WEIGHTS:
+	builder_policy.load_state_dict(torch.load(BUILDERPOLICYOPTPATH)['builder_policy_state_dict'])
+	forbidder_policy.load_state_dict(torch.load(FORBIDDERPOLICYOPTPATH)['forbidder_policy_state_dict'])
+
 builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=lr)
 forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=lr)
 
 builder_policy.train()
 forbidder_policy.train()
+
+training_stats = {}
+
+best_so_far = {"builder" : float('-inf'), 
+								 "forbidder" : float('-inf')
+								}
 
 for batch in range(num_batches):
 	#batch_builder_observations = deque()
@@ -212,7 +251,7 @@ for batch in range(num_batches):
 
 		#print(f"previous observation on turn {turn_number}:", prevobs)
 		#print(f"previous action on turn {turn_number}", builder_actions_chosen[-1] if turn_number%2==1 else forbidder_actions_chosen[-1] if len(forbidder_actions_chosen)!=0 else "empty")
-
+		batch_stats['average_game_length']
 		batch_stats['average_game_length'].append(turn_number)
 		batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_number)
 
@@ -259,31 +298,91 @@ for batch in range(num_batches):
 	batch_stats['average_game_length'] = sum(batch_stats['average_game_length'])/len(batch_stats['average_game_length'])
 
 	if len(batch_builder_actions) != 0:
-		batch_builder_actions = torch.stack(list(batch_builder_actions), dim=0)
-		batch_builder_returns = torch.stack(list(batch_builder_returns), dim=0).to(device)
+		longest_trajectory_len = max(len(trajectory) for trajectory in batch_builder_actions)
+
+		batch_builder_actions = list(F.pad(actions, (0,longest_trajectory_len - len(actions)), value = 1.0) for actions in batch_builder_actions)
+		batch_builder_actions = torch.stack(batch_builder_actions, dim = 0)
+
+		#print(batch_builder_actions.isnan().any())
+
+		batch_builder_returns = (list(F.pad(returns, (0, longest_trajectory_len - len(returns)), value = 0.0) for returns in batch_builder_returns))
+		batch_builder_returns = torch.stack(batch_builder_returns, dim = 0).to(device)
+
+		#print(batch_builder_returns.isnan().any())
+
+		#print("batch_builder_actions = ", batch_builder_actions)
+		#print("batch_builder_returns = ", batch_builder_returns)
 
 		if not eval_only:
-			builder_loss = -torch.mean((torch.log(batch_builder_actions)*batch_builder_returns).sum(dim=-1))
+			intermediate = (torch.log(batch_builder_actions)*batch_builder_returns).sum(dim=-1)
+
+			builder_loss = -torch.mean(intermediate)
 
 			builder_loss.backward()
 			builder_optimizer.step()
 			builder_optimizer.zero_grad()
 
 			batch_stats['builder_loss'] = builder_loss.cpu().item()
+
 		batch_stats['average_builder_return'] = torch.mean(batch_builder_returns[:,0]).cpu().item()
 	if len(batch_forbidder_actions) != 0:
-		batch_forbidder_actions = torch.stack(list(batch_forbidder_actions), dim=0)
-		batch_forbidder_returns = torch.stack(list(batch_forbidder_returns), dim=0).to(device)
+		longest_trajectory_len = max(len(trajectory) for trajectory in batch_forbidder_actions)
+
+		batch_forbidder_actions = list(F.pad(actions, (0, longest_trajectory_len - len(actions)), value= 1.0) for actions in batch_forbidder_actions)
+		batch_forbidder_actions = torch.stack(batch_forbidder_actions, dim = 0)
+		
+		batch_forbidder_returns = list(F.pad(returns, (0, longest_trajectory_len - len(returns)), value= 0.0) for returns in batch_forbidder_returns)
+		batch_forbidder_returns = torch.stack(batch_forbidder_returns, dim = 0).to(device)
+
+		#print("batch_forbidder_actions = ", batch_forbidder_actions)
+		#print("batch_forbidder_returns = ", batch_forbidder_returns)
 
 		if not eval_only:
-			forbidder_loss = -torch.mean((torch.log(batch_forbidder_actions)*batch_forbidder_returns).sum(dim=-1))
+			intermediate = (torch.log(batch_forbidder_actions)*batch_forbidder_returns).sum(dim=-1)
+
+			forbidder_loss = -torch.mean(intermediate)
 
 			forbidder_loss.backward()
 			forbidder_optimizer.step()
 			forbidder_optimizer.zero_grad()
 
 			batch_stats['forbidder_loss'] = forbidder_loss.cpu().item()
-		#print("builder ret\n", batch_builder_returns)
-		#print("forbidder ret\n", batch_forbidder_returns)
+
 		batch_stats['average_forbidder_return'] = torch.mean(batch_forbidder_returns[:,0]).cpu().item()
+	training_stats[batch] = batch_stats
+	
+	torch.save(
+			{
+				'training_stats' : training_stats,
+				'builder_policy_state_dict' : builder_policy.state_dict(),
+				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
+			}, BUILDERPOLICYOPTPATH
+		)
+	torch.save(
+			{
+				'training_stats' : training_stats,
+				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
+				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
+			}, FORBIDDERPOLICYOPTPATH
+		)
+	if best_so_far['builder'] < batch_stats['average_builder_return']:
+		torch.save(
+			{
+				'training_stats' : training_stats,
+				'builder_policy_state_dict' : builder_policy.state_dict(),
+				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
+			}, BESTBUILDERPOLICYOPTPATH
+		)
+		best_so_far['builder'] = batch_stats['average_builder_return']
+	if best_so_far['forbidder'] < batch_stats['average_forbidder_return']:
+		torch.save(
+			{
+				'training_stats' : training_stats,
+				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
+				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
+			}, BESTFORBIDDERPOLICYOPTPATH
+		)
+		best_so_far['forbidder'] = batch_stats['average_forbidder_return']
 	print(f"batch {batch}:", batch_stats)
+	print()
+	print()

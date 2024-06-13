@@ -23,6 +23,9 @@ class CompetiClique():
 		self.too_many_vertices_penalty = -1
 		self.outside_graph_penalty = -1
 		self.uisv_penalty = -1
+		self.forbidden_edge_penalty = -1
+		self.existing_edge_penalty = -1
+		self.not_vertex_penalty = -1
 
 		self.ordered_edges_cache = deque()
 	
@@ -84,15 +87,20 @@ class CompetiClique():
 		if player == "builder":
 			
 			builder_reward = 0
-			if len(action) != 2*self.M:
-				reward += -abs(len(action) - 2*self.M)
-				return None, builder_reward
+			assert len(action) == 2*self.M
+			
 			for idx in range(0,len(action),2):
 				u = action[idx].item()
 				v = action[idx+1].item()
 				vertices_added = 0
+				if u >= VERTEX_VOCABULARY or v >= VERTEX_VOCABULARY:
+					builder_reward += self.not_vertex_penalty
+					return None, builder_reward
 				if u == v:
 					builder_reward += self.uisv_penalty
+					return None, builder_reward
+				if (u,v) in self.G.edges or (v,u) in self.G.edges:
+					builder_reward += self.existing_edge_penalty
 					return None, builder_reward
 				if u not in self.G.nodes:
 					vertices_added += 1
@@ -117,10 +125,12 @@ class CompetiClique():
 
 		elif player == "forbidder":
 			forbidder_reward = 0
-			if len(action) != self.N:
-				forbidder_reward += -abs(len(action) - self.N)
-				return None, forbidder_reward
+			assert len(action) == self.N
 			for u in action:
+				u = u.item()
+				if u >= VERTEX_VOCABULARY:
+					forbidder_reward += self.not_vertex_penalty
+					return None, forbidder_reward
 				if u not in self.G.nodes:
 					forbidder_reward += self.outside_graph_penalty
 					return None, forbidder_reward
