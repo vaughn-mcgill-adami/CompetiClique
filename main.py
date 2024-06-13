@@ -1,17 +1,15 @@
 from competiclique_the_game import CompetiClique
 from simple_decoder_transformer import SimpleDecoderTransformer
+from config import *
 
 from copy import deepcopy
+from collections import deque
 
 import torch
 from torch.distributions.categorical import Categorical
 import torch.nn.functional as F
 
-from collections import deque
-
 from rich.progress import track
-
-from config import *
 
 def edge_condition(x : torch.Tensor):
 	assert len(x) % 2 == 0
@@ -140,12 +138,12 @@ batch_size = 1000
 lr = 0.002
 discount_factor = 0.9
 
-BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
-BESTFORBIDDERPOLICYOPTPATH = "best_forbidder_policy_opt.pt"
-BUILDERPOLICYOPTPATH = "builder_policy_opt.pt"
-FORBIDDERPOLICYOPTPATH = "forbidder_policy_opt.pt"
+BESTBUILDERPOLICYOPTPATH = "1_best_builder_policy_opt.pt"
+BESTFORBIDDERPOLICYOPTPATH = "1_best_forbidder_policy_opt.pt"
+BUILDERPOLICYOPTPATH = "1_builder_policy_opt.pt"
+FORBIDDERPOLICYOPTPATH = "1_forbidder_policy_opt.pt"
 
-LOAD_SAVED_WEIGHTS = True
+LOAD_SAVED_WEIGHTS = False
 
 game = CompetiClique(clique_size = 3,
 							edges_per_builder_turn=1,
@@ -186,7 +184,7 @@ for batch in range(num_batches):
 	batch_stats = {'average_game_length' : deque(),
 						'max_game_length' : 0}
 
-	for episode in track(range(batch_size), description = 'Playing game: '):
+	for episode in track(range(batch_size), description = f'Batch: {batch}/{num_batches} : playing game : '):
 		#builder_observations = deque()
 		builder_actions_probs = deque()
 		builder_actions_chosen = deque()

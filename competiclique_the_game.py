@@ -7,7 +7,11 @@ from collections import deque
 from numpy.random import default_rng
 
 from config import *
-from math import e
+
+"""
+TODO: Possibly give the forbidder a reward when the builder connects all vertices in the vocabulary, 
+      though this event will never happen.
+"""
 
 class CompetiClique():
 	def __init__(self, clique_size, edges_per_builder_turn, vertices_per_forbidder_turn):
