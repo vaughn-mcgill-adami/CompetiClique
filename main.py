@@ -125,7 +125,7 @@ else:
 embedding_dim = 64
 mlp_dim = 96
 
-device = torch.device("cpu")
+device = torch.device("cuda:0")
 
 model = SimpleDecoderTransformer(L=6, H=4, d_e=embedding_dim, d_mlp = mlp_dim).to(device)
 
@@ -138,12 +138,12 @@ batch_size = 1000
 lr = 0.002
 discount_factor = 0.9
 
-BESTBUILDERPOLICYOPTPATH = "1_best_builder_policy_opt.pt"
-BESTFORBIDDERPOLICYOPTPATH = "1_best_forbidder_policy_opt.pt"
-BUILDERPOLICYOPTPATH = "1_builder_policy_opt.pt"
-FORBIDDERPOLICYOPTPATH = "1_forbidder_policy_opt.pt"
+BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
+BESTFORBIDDERPOLICYOPTPATH = "best_forbidder_policy_opt.pt"
+BUILDERPOLICYOPTPATH = "builder_policy_opt.pt"
+FORBIDDERPOLICYOPTPATH = "forbidder_policy_opt.pt"
 
-LOAD_SAVED_WEIGHTS = False
+LOAD_SAVED_WEIGHTS = True
 
 game = CompetiClique(clique_size = 3,
 							edges_per_builder_turn=1,
@@ -153,24 +153,50 @@ game = CompetiClique(clique_size = 3,
 """
 Vanilla policy gradient implementation.
 """
-builder_policy = deepcopy(model).to(device)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
-forbidder_policy = deepcopy(model).to(device)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
-
-if LOAD_SAVED_WEIGHTS:
-	builder_policy.load_state_dict(torch.load(BUILDERPOLICYOPTPATH)['builder_policy_state_dict'])
-	forbidder_policy.load_state_dict(torch.load(FORBIDDERPOLICYOPTPATH)['forbidder_policy_state_dict'])
+builder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
+forbidder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 
 builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=lr)
 forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=lr)
-
-builder_policy.train()
-forbidder_policy.train()
 
 training_stats = {}
 
 best_so_far = {"builder" : float('-inf'), 
 								 "forbidder" : float('-inf')
 								}
+
+if LOAD_SAVED_WEIGHTS:
+	builder_state = torch.load(BUILDERPOLICYOPTPATH)
+	forbidder_state = torch.load(FORBIDDERPOLICYOPTPATH)
+
+	training_stats = builder_state['training_stats']
+
+	builder_policy.load_state_dict(builder_state['builder_policy_state_dict'])
+	print('loaded builder policy')
+	forbidder_policy.load_state_dict(forbidder_state['forbidder_policy_state_dict'])
+	print('loaded builder optimizer')
+
+	builder_optimizer.load_state_dict(builder_state['builder_optimizer_state_dict'])
+	print('loaded forbidder policy')
+	forbidder_optimizer.load_state_dict(forbidder_state['forbidder_optimizer_state_dict'])
+	print('loaded forbidder optimizer')
+
+	assert len(training_stats) != 0
+	print(len(training_stats))
+
+	best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats in training_stats.values()),
+								 "forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats in training_stats.values())
+								}
+	print('best builder average return :', best_so_far['builder'])
+	print('best forbidder average return :', best_so_far['forbidder'])
+	print('latest builder average return :', training_stats[len(training_stats) - 1]['average_builder_return'])
+	print('latest forbidder average return :', training_stats[len(training_stats) - 1]['average_forbidder_return'])
+
+builder_policy.to(device)
+forbidder_policy.to(device)
+
+builder_policy.train()
+forbidder_policy.train()
 
 for batch in range(num_batches):
 	#batch_builder_observations = deque()
@@ -182,7 +208,7 @@ for batch in range(num_batches):
 	batch_forbidder_returns = deque()
 
 	batch_stats = {'average_game_length' : deque(),
-						'max_game_length' : 0}
+								'max_game_length' : 0}
 
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{num_batches} : playing game : '):
 		#builder_observations = deque()
