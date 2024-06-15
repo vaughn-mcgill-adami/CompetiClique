@@ -1,5 +1,5 @@
 from competiclique_the_game import CompetiClique
-from simple_decoder_transformer import SimpleDecoderTransformer
+from simple_decoder_transformer import SimpleDecoderTransformer#, set_batch_norm_momentum
 from config import *
 
 from copy import deepcopy
@@ -43,7 +43,7 @@ def load_training_history(builder_policy, forbidder_policy, builder_optimizer, f
 	return training_stats, best_so_far
 
 
-def collect_batch_of_trajectories(game, batch : int, builder_policy, forbidder_policy, device, evalu = False):
+def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, device, evalu = False):
 	#batch_builder_observations = deque()
 	batch_builder_actions = deque()
 	batch_builder_returns = deque()
@@ -53,13 +53,16 @@ def collect_batch_of_trajectories(game, batch : int, builder_policy, forbidder_p
 	batch_forbidder_returns = deque()
 
 	batch_stats = {'average_game_length' : deque(),
-								'max_game_length' : 0}
+				   'max_game_length' : 0,
+				   'builder_wins' : 0,
+				   'forbidder_wins' : 0,
+				   'nobody_wins' : 0}
 
-	for episode in track(range(BATCH_SIZE), description = f'Batch: {batch}/{NUM_BATCHES} : playing game : '):
-		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number = run_trajectory(game, builder_policy, forbidder_policy, device, evalu = evalu)
+	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
+		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, device, evalu = evalu)
 		#print(f"previous observation on turn {turn_number}:", prevobs)
 		#print(f"previous action on turn {turn_number}", builder_actions_chosen[-1] if turn_number%2==1 else forbidder_actions_chosen[-1] if len(forbidder_actions_chosen)!=0 else "empty")
-		batch_stats['average_game_length']
+		batch_stats[winner] += 1
 		batch_stats['average_game_length'].append(turn_number)
 		batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_number)
 
@@ -114,12 +117,10 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 
 	graphs_each_turn = deque()
 
-	if evalu:
-		builder_policy.eval()
-		forbidder_policy.eval()
-
 	builder_continue = True
 	forbidder_continue = True
+	
+	winner = ""
 
 	while observation is not None and (builder_continue or forbidder_continue):
 		#prevobs = observation
@@ -173,10 +174,17 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 			graphs_each_turn.append(deepcopy(game.G))
 		turn_number += 1
 
+		if observation is not None and builder_continue and not forbidder_continue:
+			winner = "forbidder_wins"
+		if observation is not None and not builder_continue and forbidder_continue:
+			winner = "builder_wins"
+		elif observation is None:
+			winner = "nobody_wins"
+
 	if evalu:
-		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn
+		return (builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn, winner)
 	else:
-		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number
+		return (builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner)
 
 
 def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_actions, batch_forbidder_actions, batch_builder_returns, batch_forbidder_returns, device, batch_stats):
@@ -227,10 +235,18 @@ def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_action
 			batch_stats['forbidder_loss'] = forbidder_loss.cpu().item()
 			print('forbidder_loss', batch_stats['forbidder_loss'])
 
+def evaluate(game, batch, builder_policy, forbidder_policy, device):
+	with torch.no_grad():
+		builder_policy.eval()
+		forbidder_policy.eval()
+		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, device)
+		return batch_stats
+	
 
 def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, training_stats, batch_stats, best_so_far):
 	torch.save(
 			{
+				'vertex_vocabulary' : VERTEX_VOCABULARY,
 				'training_stats' : training_stats,
 				'builder_policy_state_dict' : builder_policy.state_dict(),
 				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
@@ -238,6 +254,7 @@ def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_op
 		)
 	torch.save(
 			{
+				'vertex_vocabulary' : VERTEX_VOCABULARY,
 				'training_stats' : training_stats,
 				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
 				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
@@ -246,6 +263,7 @@ def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_op
 	if best_so_far['builder'] < batch_stats['average_builder_return']:
 		torch.save(
 			{
+				'vertex_vocabulary' : VERTEX_VOCABULARY,
 				'training_stats' : training_stats,
 				'builder_policy_state_dict' : builder_policy.state_dict(),
 				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
@@ -255,6 +273,7 @@ def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_op
 	if best_so_far['forbidder'] < batch_stats['average_forbidder_return']:
 		torch.save(
 			{
+				'vertex_vocabulary' : VERTEX_VOCABULARY,
 				'training_stats' : training_stats,
 				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
 				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
@@ -274,6 +293,9 @@ def main():
 
 	builder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 	forbidder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
+
+	#set_batch_norm_momentum(builder_policy, BATCH_NORM_MOMENTUM)
+	#set_batch_norm_momentum(forbidder_policy, BATCH_NORM_MOMENTUM)
 
 	builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
 	forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=LEARNING_RATE)
@@ -299,17 +321,18 @@ def main():
 
 	builder_policy.to(device)
 	forbidder_policy.to(device)
-
-	builder_policy.train()
-	forbidder_policy.train()
-
+	
 	for batch in range(NUM_BATCHES):
+		builder_policy.train()
+		forbidder_policy.train()
+		
 		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
-																																																																								batch, 
-																																																																								builder_policy, 
-																																																																								forbidder_policy, 
-																																																																								device)
-
+																																					BATCH_SIZE,
+																																					batch, 
+																																					builder_policy, 
+																																					forbidder_policy, 
+																																					device)
+		
 		print(f"Batch {batch} Statistics:")
 		for key, value in batch_stats.items():
 			print(key, value)
@@ -323,7 +346,13 @@ def main():
 									 device, 
 									 batch_stats)
 		
-		training_stats.append(batch_stats)
+		eval_stats = evaluate(game, batch, builder_policy, forbidder_policy, device)
+	
+		print(f"Eval {eval_stats} Statistics:")
+		for key, value in eval_stats.items():
+			print(key, value)
+		
+		training_stats.append((batch_stats, eval_stats))
 
 		checkpoint(builder_policy, 
 						 forbidder_policy, 
@@ -332,11 +361,6 @@ def main():
 						 training_stats, 
 						 batch_stats, 
 						 best_so_far)
-
-		if SAVE_A_TRAJECTORY_PATH:
-			torch.save(run_trajectory(
-				game, builder_policy, forbidder_policy, device, evalu=True
-			), SAVE_A_TRAJECTORY_PATH)
 		
 		print()
 		print()

@@ -64,6 +64,7 @@ class CompetiClique():
 										FORBIDDEN_TOKEN if self.G.nodes[u]['forbidden'] else AVAILABLE_TOKEN,
 										v,
 										FORBIDDEN_TOKEN if self.G.nodes[v]['forbidden'] else AVAILABLE_TOKEN])for u, v in self.ordered_edges_cache]
+			#observation = [torch.tensor([])] + observation TODO : allow specification of game rules in input.
 			observation.append(torch.tensor([END_OBSERVATION_TOKEN]))
 			observation = torch.cat(observation)
 		else:
@@ -140,11 +141,11 @@ class CompetiClique():
 				else:
 					self.G.nodes[u]['forbidden'] = True
 			
-			if self.detect_forbidder_win():
-				forbidder_reward += self.win_reward
-				return self.observe(), forbidder_reward, False
-			elif self.detect_builder_win():
+			if self.detect_builder_win():
 				forbidder_reward += self.lose_reward
+				return self.observe(), forbidder_reward, False
+			elif self.detect_forbidder_win():
+				forbidder_reward += self.win_reward
 				return self.observe(), forbidder_reward, False
 			else:
 				return self.observe(), forbidder_reward, True
