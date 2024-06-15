@@ -10,7 +10,7 @@ from config import *
 
 """
 TODO: Possibly give the forbidder a reward when the builder connects all vertices in the vocabulary, 
-      though this event will never happen.
+			though this event will never happen.
 """
 
 class CompetiClique():
@@ -30,6 +30,10 @@ class CompetiClique():
 		self.forbidden_edge_penalty = -1
 		self.existing_edge_penalty = -1
 		self.not_vertex_penalty = -1
+		self.already_forbidden_vertex_penalty = -1
+
+		self.win_reward = 1
+		self.lose_reward = -1
 
 		self.ordered_edges_cache = deque()
 	
@@ -68,20 +72,6 @@ class CompetiClique():
 		observation = torch.unsqueeze(observation, dim=0)
 
 		return observation
-	
-	def reward_win_lose(self, player):
-		if self.detect_builder_win():
-			if player == "builder":
-				return 1
-			if player == "forbidder":
-				return -1
-		elif self.detect_forbidder_win():
-			if player == "builder":
-				return -1
-			if player == "forbidder":
-				return 1
-		else:
-			return 0
 		
 	def step(self, action, player):
 		"""
@@ -99,13 +89,13 @@ class CompetiClique():
 				vertices_added = 0
 				if u >= VERTEX_VOCABULARY or v >= VERTEX_VOCABULARY:
 					builder_reward += self.not_vertex_penalty
-					return None, builder_reward
+					return None, builder_reward, False
 				if u == v:
 					builder_reward += self.uisv_penalty
-					return None, builder_reward
+					return None, builder_reward, False
 				if (u,v) in self.G.edges or (v,u) in self.G.edges:
 					builder_reward += self.existing_edge_penalty
-					return None, builder_reward
+					return None, builder_reward, False
 				if u not in self.G.nodes:
 					vertices_added += 1
 					self.G.add_node(u)
@@ -114,7 +104,7 @@ class CompetiClique():
 					vertices_added += 1
 					if(vertices_added >= 2):
 						builder_reward += self.too_many_vertices_penalty
-						return None, builder_reward
+						return None, builder_reward, False
 					self.G.add_node(v)
 					self.G.nodes[v]['forbidden'] = False
 				if not self.G.nodes[u]['forbidden'] or not self.G.nodes[v]['forbidden']:
@@ -122,10 +112,16 @@ class CompetiClique():
 					self.ordered_edges_cache.append((u,v))
 				else:
 					builder_reward += self.forbidden_edge_penalty
-					return None, builder_reward
+					return None, builder_reward, False
 
-			builder_reward += self.reward_win_lose(player)
-			return self.observe(), builder_reward
+			if self.detect_builder_win():
+				builder_reward += self.win_reward
+				return self.observe(), builder_reward, False
+			elif self.detect_forbidder_win():
+				builder_reward += self.lose_reward
+				return self.observe(), builder_reward, False
+			else:
+				return self.observe(), builder_reward, True
 
 		elif player == "forbidder":
 			forbidder_reward = 0
@@ -134,15 +130,24 @@ class CompetiClique():
 				u = u.item()
 				if u >= VERTEX_VOCABULARY:
 					forbidder_reward += self.not_vertex_penalty
-					return None, forbidder_reward
+					return None, forbidder_reward, False
 				if u not in self.G.nodes:
 					forbidder_reward += self.outside_graph_penalty
-					return None, forbidder_reward
+					return None, forbidder_reward, False
+				if self.G.nodes[u]['forbidden']:
+					forbidder_reward += self.already_forbidden_vertex_penalty
+					return None, forbidder_reward, False
 				else:
 					self.G.nodes[u]['forbidden'] = True
 			
-			forbidder_reward += self.reward_win_lose(player)
-			return self.observe(), forbidder_reward
+			if self.detect_forbidder_win():
+				forbidder_reward += self.win_reward
+				return self.observe(), forbidder_reward, False
+			elif self.detect_builder_win():
+				forbidder_reward += self.lose_reward
+				return self.observe(), forbidder_reward, False
+			else:
+				return self.observe(), forbidder_reward, True
 
 	def reset(self):
 		self.initialize_graph()
