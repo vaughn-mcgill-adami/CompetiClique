@@ -63,7 +63,7 @@ class CompetiClique():
 			observation = observation + [torch.tensor([END_OBSERVATION_TOKEN])]
 			observation = torch.cat(observation, dim=0)
 		else:
-			observation = torch.cat([torch.tensor([self.K, self.M, self.N, END_GAME_DESCRIPTION_TOKEN])] + [torch.tensor([u, FORBIDDEN_TOKEN if self.G.nodes[u]['forbidden'] else AVAILABLE_TOKEN]) for u in self.G.nodes] + [torch.tensor([END_OBSERVATION_TOKEN])], dim=0)
+			observation = torch.cat([torch.tensor([VERTEX_VOCAB_STARTS_AT + self.K, VERTEX_VOCAB_STARTS_AT + self.M, VERTEX_VOCAB_STARTS_AT + self.N, END_GAME_DESCRIPTION_TOKEN])] + [torch.tensor([u, FORBIDDEN_TOKEN if self.G.nodes[u]['forbidden'] else AVAILABLE_TOKEN]) for u in self.G.nodes] + [torch.tensor([END_OBSERVATION_TOKEN])], dim=0)
 
 		observation = torch.unsqueeze(observation, dim=0)
 
