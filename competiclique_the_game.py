@@ -95,15 +95,13 @@ class CompetiClique():
 				if (u,v) in self.G.edges or (v,u) in self.G.edges:
 					builder_reward = self.existing_edge_penalty
 					return None, builder_reward, False
+				if u not in self.G.nodes and v not in self.G.nodes:
+					builder_reward = self.too_many_vertices_penalty
+					return None, builder_reward, False
 				if u not in self.G.nodes:
-					vertices_added = 1
 					self.G.add_node(u)
 					self.G.nodes[u]['forbidden'] = False
-				if v not in self.G.nodes:
-					vertices_added = 1
-					if(vertices_added >= 2):
-						builder_reward = self.too_many_vertices_penalty
-						return None, builder_reward, False
+				elif v not in self.G.nodes:
 					self.G.add_node(v)
 					self.G.nodes[v]['forbidden'] = False
 				if not self.G.nodes[u]['forbidden'] or not self.G.nodes[v]['forbidden']:
