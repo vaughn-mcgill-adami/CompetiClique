@@ -1,8 +1,9 @@
 import torch
+import torch.nn.functional as F
 
 from simple_decoder_transformer import SimpleDecoderTransformer
 from config import *
-from main import run_trajectory
+from main import evaluate
 from competiclique_the_game import CompetiClique
 
 from rich.progress import track
@@ -63,7 +64,12 @@ def generate_batch(batch_size : int, episode_length : int):
 						x[2*end_observation_index:]), dim=0)
 				batch.append(xp)
 			curr_episode += 1
-	return torch.nested.nested_tensor(batch).to_padded_tensor(padding=PAD_TOKEN)
+	longest_trajectory_len = max(len(trajectory) for trajectory in batch)
+
+	batch = list(F.pad(trajectory, (0, longest_trajectory_len - len(trajectory)), value=PAD_TOKEN) for trajectory in batch)
+	batch = torch.stack(batch, dim = 0)
+
+	return batch
 
 def main():
 	device = torch.device(DEVICE)
@@ -100,20 +106,20 @@ def main():
 		pre_training_optimizer.zero_grad()
 		
 		stop = prevloss < loss.item()
-		if epoch % 5 == 0 or stop or epoch == epochs-1:
-			torch.save({
-				'epoch': epochs,
-				'loss': loss.item(),
-				'model_state_dict': model.state_dict(),
-				'optimizer_state_dict': pre_training_optimizer.state_dict()
-				}, PATH)
-			if stop:
-				break
+		torch.save({
+			'epoch': epochs,
+			'loss': loss.item(),
+			'model_state_dict': model.state_dict(),
+			'optimizer_state_dict': pre_training_optimizer.state_dict()
+			}, PATH)
+		if stop:
+			break
 
-		if SAVE_A_PRETRAIN_TRAJECTORY_PATH:
-			torch.save(run_trajectory(
-				game, model, model, device, evalu=True
-			), SAVE_A_PRETRAIN_TRAJECTORY_PATH)
+		eval_stats = evaluate(game, batch, model, model, device)
+	
+		print(f"Eval {eval_stats} Statistics:")
+		for key, value in eval_stats.items():
+			print(key, value)
 				
 		print(epoch, loss.item())
 

@@ -11,12 +11,12 @@ def set_batch_norm_momentum(policy, momentum):
 """
 
 class SimpleDecoderTransformer(nn.Module):
-	def __init__(self, L : int, H : int, d_e : int, d_mlp : int):
+	def __init__(self, L : int, H : int, d_e : int, d_mlp : int, n_tokens : int, n_positions : int, n_out : int):
 		super().__init__()
-		self.vertex_embedding = nn.Embedding(num_embeddings = N_TOKENS,
+		self.vertex_embedding = nn.Embedding(num_embeddings = n_tokens,
 									   		 embedding_dim = d_e
 											)
-		self.position_embedding = nn.Embedding(num_embeddings = POSITIONS,
+		self.position_embedding = nn.Embedding(num_embeddings = n_positions,
 										 	   embedding_dim = d_e
 										 	  )
 		self.trunk = nn.ModuleList(
@@ -32,7 +32,7 @@ class SimpleDecoderTransformer(nn.Module):
 		)
 
 		self.final_layer_norm = nn.LayerNorm(d_e)
-		self.final_linear = nn.Linear(d_e, N_TOKENS)
+		self.final_linear = nn.Linear(d_e, n_out)
 
 	def get_causal_mask(self, timesteps):
 		mask = torch.tensor([[source_time_step > target_time_step for source_time_step in range(timesteps)] for target_time_step in range(timesteps)])

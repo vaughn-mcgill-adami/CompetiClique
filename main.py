@@ -8,39 +8,103 @@ from collections import deque
 import torch
 from torch.distributions.categorical import Categorical
 import torch.nn.functional as F
+from torch import nn
 
 from rich.progress import track
 
-def load_training_history(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, device):
+def update_embedding_size(embedding, vocab_size):
+	with torch.no_grad():
+		embedding.weight = nn.Parameter(torch.cat((embedding.weight, torch.randn(vocab_size - embedding.weight.shape[0], EMBEDDING_DIM) ), dim=0))
+
+def update_final_layer(layer, vocab_size):
+	with torch.no_grad():
+		layer.weight = nn.Parameter(torch.cat((layer.weight, torch.randn(vocab_size - layer.weight.shape[0], EMBEDDING_DIM) ), dim=0))
+		layer.bias = nn.Parameter(torch.cat((layer.bias, torch.randn(vocab_size - layer.bias.shape[0]) ), dim=0))
+
+def load_training_history(device):
 	builder_state = torch.load(BUILDERPOLICYOPTPATH, map_location=device)
 	forbidder_state = torch.load(FORBIDDERPOLICYOPTPATH, map_location=device)
 
 	training_stats = builder_state['training_stats']
+	
+	print('builder_policy_state_dict : ')
+	for name, val in builder_state['builder_policy_state_dict'].items():
+		print(name, val.shape)
+	print()
+
+	print('forbidder_policy_state_dict : ')
+	for name, val in forbidder_state['forbidder_policy_state_dict'].items():
+		print(name, val.shape)
+	print()
+
+	builder_old_n_tokens = builder_state['builder_policy_state_dict']['vertex_embedding.weight'].shape[0]
+	builder_old_n_positions = builder_state['builder_policy_state_dict']['position_embedding.weight'].shape[0]
+	builder_old_n_out = builder_state['builder_policy_state_dict']['final_linear.bias'].shape[0]
+
+	builder_policy = SimpleDecoderTransformer(L = LAYERS, 
+										   H=HEADS, 
+										   d_e=EMBEDDING_DIM,
+										   d_mlp=MLP_DIM,
+										   n_tokens=builder_old_n_tokens,
+										   n_positions=builder_old_n_positions,
+										   n_out=builder_old_n_out)
+
+	forbidder_old_n_tokens = forbidder_state['forbidder_policy_state_dict']['vertex_embedding.weight'].shape[0]
+	forbidder_old_n_positions = forbidder_state['forbidder_policy_state_dict']['position_embedding.weight'].shape[0]
+	forbidder_old_n_out = forbidder_state['forbidder_policy_state_dict']['final_linear.bias'].shape[0]
+
+	forbidder_policy = SimpleDecoderTransformer(L = LAYERS, 
+										   H=HEADS, 
+										   d_e=EMBEDDING_DIM,
+										   d_mlp=MLP_DIM,
+										   n_tokens=forbidder_old_n_tokens,
+										   n_positions=forbidder_old_n_positions,
+										   n_out=forbidder_old_n_out)
 
 	builder_policy.load_state_dict(builder_state['builder_policy_state_dict'])
 	print('loaded builder policy')
 	forbidder_policy.load_state_dict(forbidder_state['forbidder_policy_state_dict'])
-	print('loaded builder optimizer')
-
-	builder_optimizer.load_state_dict(builder_state['builder_optimizer_state_dict'])
 	print('loaded forbidder policy')
-	forbidder_optimizer.load_state_dict(forbidder_state['forbidder_optimizer_state_dict'])
-	print('loaded forbidder optimizer')
 
 	assert len(training_stats) != 0
 	print(len(training_stats))
-
-	print(training_stats)
-
-	best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats in training_stats),
-								"forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats in training_stats)
+	
+	best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats, eval_stats in training_stats),
+								"forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats)
 								}
 	print('best builder average return :', best_so_far['builder'])
 	print('best forbidder average return :', best_so_far['forbidder'])
-	print('latest builder average return :', training_stats[len(training_stats) - 1]['average_builder_return'])
-	print('latest forbidder average return :', training_stats[len(training_stats) - 1]['average_forbidder_return'])
+	print('second latest builder average return :', training_stats[len(training_stats) - 1][0]['average_builder_return'])
+	print('second latest forbidder average return :', training_stats[len(training_stats) - 1][0]['average_forbidder_return'])
+	
+	update_embedding_size(builder_policy.vertex_embedding, N_TOKENS)
+	update_embedding_size(builder_policy.position_embedding, POSITIONS)
+	update_embedding_size(forbidder_policy.vertex_embedding, N_TOKENS)
+	update_embedding_size(forbidder_policy.position_embedding, POSITIONS)
 
-	return training_stats, best_so_far
+	update_final_layer(builder_policy.final_linear, N_TOKENS)
+	update_final_layer(forbidder_policy.final_linear, N_TOKENS)
+	
+	print('builder_policy_state_dict (2): ')
+	for name, val in builder_policy.named_parameters():
+		print(name, val.shape)
+	print()
+
+	print('forbidder_policy_state_dict (2): ')
+	for name, val in forbidder_policy.named_parameters():
+		print(name, val.shape)
+	print()
+	
+	print('building optimizers')
+	builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
+	forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=LEARNING_RATE)
+	if builder_old_n_tokens == N_TOKENS and builder_old_n_positions == POSITIONS and builder_old_n_out == N_OUT:
+		builder_optimizer.load_state_dict(builder_state['builder_optimizer_state_dict'])
+	if forbidder_old_n_tokens == N_TOKENS and forbidder_old_n_positions == POSITIONS and forbidder_old_n_out == N_OUT:
+		forbidder_optimizer.load_state_dict(forbidder_state['forbidder_optimizer_state_dict'])
+	print('loaded optimizers')
+
+	return training_stats, best_so_far, builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer
 
 
 def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, device, evalu = False):
@@ -73,6 +137,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 
 			builder_discounted_returns = torch.tensor([sum(DISCOUNT_FACTOR**i*reward for i, reward in enumerate(builder_rewards[k:])) for k in range(len(builder_rewards))])
 			builder_discounted_returns = builder_discounted_returns.repeat_interleave(2*game.M)
+			#print("M = ", game.M)
 
 			builder_actions_probs = torch.cat(list(builder_actions_probs))
 			builder_actions_chosen = torch.cat(list(builder_actions_chosen))
@@ -87,7 +152,8 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 			forbidder_rewards = torch.tensor(list(forbidder_rewards))
 			
 			forbidder_discounted_returns = torch.tensor([sum(DISCOUNT_FACTOR**i*reward for i, reward in enumerate(forbidder_rewards[k:])) for k in range(len(forbidder_rewards))])
-			forbidder_discounted_returns = forbidder_discounted_returns.repeat_interleave(game.N)
+			forbidder_discounted_returns = forbidder_discounted_returns.repeat_interleave(game.N) #TODO: Possibly move before the discounting? Might keep it the way it is b/c good heuristic for larger M, N
+			#print("N = ", game.N)
 
 			forbidder_actions_probs = torch.cat(list(forbidder_actions_probs))
 			forbidder_actions_chosen = torch.cat(list(forbidder_actions_chosen))
@@ -112,7 +178,10 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 	forbidder_actions_chosen = deque()
 	forbidder_rewards = deque()
 
-	observation = game.reset()
+	observation = game.reset(clique_size = game.rng.integers(low=MIN_CLIQUE_SIZE, high=MAX_CLIQUE_SIZE + 1, size=1)[0],
+							 edges_per_builder_turn=game.rng.integers(low=MIN_EDGES_PER_BUILDER_TURN, high=MAX_EDGES_PER_BUILDER_TURN + 1, size=1)[0],
+							 vertices_per_forbidder_turn=game.rng.integers(low=MIN_VERTICES_PER_FORBIDDER_TURN, high=MAX_VERTICES_PER_FORBIDDER_TURN + 1, size=1)[0]
+							)
 	turn_number = 0
 
 	graphs_each_turn = deque()
@@ -176,9 +245,9 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 
 		if observation is not None and builder_continue and not forbidder_continue:
 			winner = "forbidder_wins"
-		if observation is not None and not builder_continue and forbidder_continue:
+		elif observation is not None and not builder_continue and forbidder_continue:
 			winner = "builder_wins"
-		elif observation is None:
+		elif observation is None and winner == "":
 			winner = "nobody_wins"
 
 	if evalu:
@@ -283,22 +352,11 @@ def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_op
 
 def main():
 	device = torch.device(DEVICE)
-
-	model = SimpleDecoderTransformer(L=LAYERS, H=HEADS, d_e=EMBEDDING_DIM, d_mlp = MLP_DIM).to(device)
-
-	game = CompetiClique(clique_size = CLIQUE_SIZE,
-								edges_per_builder_turn=EDGES_PER_BUILDER_TURN,
-							vertices_per_forbidder_turn=VERTICES_PER_FORBIDDER_TURN
-							)
-
-	builder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
-	forbidder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
-
-	#set_batch_norm_momentum(builder_policy, BATCH_NORM_MOMENTUM)
-	#set_batch_norm_momentum(forbidder_policy, BATCH_NORM_MOMENTUM)
-
-	builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
-	forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=LEARNING_RATE)
+	
+	builder_policy = None
+	forbidder_policy = None
+	builder_optimizer = None
+	forbidder_optimizer	= None
 
 	training_stats = []
 
@@ -307,8 +365,21 @@ def main():
 									}
 
 	if LOAD_SAVED_WEIGHTS:
-		training_stats, best_so_far = load_training_history(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, device)
+		training_stats, best_so_far, builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer  = load_training_history(device)
 	else:
+		model = SimpleDecoderTransformer(L=LAYERS, 
+								   H=HEADS, 
+								   d_e=EMBEDDING_DIM, 
+								   d_mlp = MLP_DIM, 
+								   n_tokens = N_TOKENS, 
+								   n_positions = POSITIONS,
+								   n_out = N_OUT).to(device)
+		builder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
+		forbidder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
+
+		builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
+		forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=LEARNING_RATE)
+
 		print('WARNING: training will overwrite existing weights because LOAD_SAVED_WEIGHTS = False in config.py')
 	
 	print('start training? (y to continue / n to cancel): ')
@@ -318,10 +389,12 @@ def main():
 		if inp == 'n':
 			print('training cancelled.')
 			return
-
+	
 	builder_policy.to(device)
 	forbidder_policy.to(device)
 	
+	game = CompetiClique()
+
 	for batch in range(NUM_BATCHES):
 		builder_policy.train()
 		forbidder_policy.train()
@@ -346,11 +419,13 @@ def main():
 									 device, 
 									 batch_stats)
 		
+		"""
 		eval_stats = evaluate(game, batch, builder_policy, forbidder_policy, device)
-	
-		print(f"Eval {eval_stats} Statistics:")
+		
+		print(f"Eval Statistics:")
 		for key, value in eval_stats.items():
 			print(key, value)
+		"""
 		
 		training_stats.append((batch_stats, eval_stats))
 
