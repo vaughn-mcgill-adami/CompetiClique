@@ -59,7 +59,7 @@ class CompetiClique():
 										FORBIDDEN_TOKEN if self.G.nodes[u]['forbidden'] else AVAILABLE_TOKEN,
 										v,
 										FORBIDDEN_TOKEN if self.G.nodes[v]['forbidden'] else AVAILABLE_TOKEN])for u, v in self.ordered_edges_cache]
-			observation = [torch.tensor([self.K, self.M, self.N, END_GAME_DESCRIPTION_TOKEN])] + observation #NOTE: K, M, N <= N_TOKENS is required
+			observation = [torch.tensor([VERTEX_VOCAB_STARTS_AT + self.K, VERTEX_VOCAB_STARTS_AT + self.M, VERTEX_VOCAB_STARTS_AT + self.N, END_GAME_DESCRIPTION_TOKEN])] + observation #NOTE: K, M, N <= N_TOKENS is required
 			observation = observation + [torch.tensor([END_OBSERVATION_TOKEN])]
 			observation = torch.cat(observation, dim=0)
 		else:
