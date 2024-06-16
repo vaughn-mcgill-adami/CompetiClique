@@ -427,7 +427,7 @@ def main():
 			print(key, value)
 		"""
 		
-		training_stats.append((batch_stats, eval_stats))
+		training_stats.append((batch_stats, None))
 
 		checkpoint(builder_policy, 
 						 forbidder_policy, 
