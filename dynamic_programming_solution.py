@@ -29,9 +29,7 @@ def initialize_forbidden_vertices(G : nx.Graph):
 
 initialize_forbidden_vertices(G)
 
-competitively_optimal_plays, competitively_optimal_costs = [], []
-
-def avoider_possibilities(G : nx.Graph):
+def avoider_possibilities(G : nx.Graph, width = None):
 	#vertices = rng.integers(low = 0, high=len(G.nodes), size=search_width)
 	n = len(G.nodes)
 	if n == 0:
@@ -39,12 +37,20 @@ def avoider_possibilities(G : nx.Graph):
 
 	shuffled_vertices = list(range(n))
 	rng.shuffle(shuffled_vertices)
+	
+	if width == None:
+		for v in shuffled_vertices:
+			if not G.nodes[v]['forbidden']:
+				g = deepcopy(G)
+				g.nodes[v]['forbidden'] = True
+				yield g
+	else:
+		for i in range(width):
+			if not G.nodes[shuffled_vertices[i]]['forbidden']:
+				g = deepcopy(G)
+				g.nodes[shuffled_vertices[i]]['forbidden'] = True
+				yield g
 
-	for v in shuffled_vertices:
-		if not G.nodes[v]['forbidden']:
-			g = deepcopy(G)
-			g.nodes[v]['forbidden'] = True
-			yield g
 
 def builder_possibilities(G : nx.Graph):
 	n = len(G.nodes)

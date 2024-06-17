@@ -2,6 +2,8 @@ from competiclique_the_game import CompetiClique
 from simple_decoder_transformer import SimpleDecoderTransformer#, set_batch_norm_momentum
 from config import *
 
+from dynamic_programming_solution import builder_turn, avoider_turn
+
 from copy import deepcopy
 from collections import deque
 
@@ -14,6 +16,9 @@ from torch import nn
 from rich.progress import track
 
 class Deterministic():
+	"""
+	A dummy class that is used in place of a distribution over non-negative "noise vectors" of shape size
+	"""
 	def __init__(self, size):
 		self.size = size
 		return
@@ -175,6 +180,45 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 	
 	return batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats
 
+"""
+TODO: imitation learn some of the dynamic programming solution
+
+Aside: why reward to go works:
+maybe because the expected reward of a trajectory is a martingale???
+
+E[r(trajectory[:N])] is the original RL objective, where N is episode length
+
+= E[sum(r(trajectory[k]) for k in range(N)))
+
+E[r(trajectory[:N]) | trajectory[:k]] = 
+E[r(trajectory[:k]) | trajectory[:k]] + E[r(trajectory[k:N]) | trajectory[:k]] =
+r(trajectory[:k]) + E[r(trajectory[k:N]) | trajectory[:k]]
+
+Now observe that at time k, no action in trajectory[:k] is a function of the policy.
+Hence this is a constant term in the objective, whose gradient is 0.
+
+"""
+"""
+def sample_almost_brute_force_trajectory(game, device, evalu=False):
+	builder_observations = deque()
+	builder_actions_probs = deque()
+	builder_actions_chosen = deque()
+	builder_rewards = deque()
+	forbidder_observations = deque()
+	forbidder_actions_probs = deque()
+	forbidder_actions_chosen = deque()
+	forbidder_rewards = deque()
+
+	graphs_each_turn = deque()
+
+	turn_number = 0
+	winner = ""
+
+	builder_turn(G, M, N, MAXLOOKAHEAD, ax=None)
+
+
+	return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner
+"""
 
 def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu=False):
 	builder_observations = deque()
