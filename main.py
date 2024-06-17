@@ -7,10 +7,18 @@ from collections import deque
 
 import torch
 from torch.distributions.categorical import Categorical
+from torch.distributions.uniform import Uniform
 import torch.nn.functional as F
 from torch import nn
 
 from rich.progress import track
+
+class Deterministic():
+	def __init__(self, size):
+		self.size = size
+		return
+	def sample(self):
+		return torch.zeros(self.size)
 
 def update_embedding_size(embedding, vocab_size):
 	with torch.no_grad():
@@ -107,7 +115,7 @@ def load_training_history(device):
 	return training_stats, best_so_far, builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer
 
 
-def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, device, evalu = False):
+def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, action_noise, device, evalu = False):
 	#batch_builder_observations = deque()
 	batch_builder_actions = deque()
 	batch_builder_returns = deque()
@@ -123,7 +131,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 				   'nobody_wins' : 0}
 
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
-		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, device, evalu = evalu)
+		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
 		#print(f"previous observation on turn {turn_number}:", prevobs)
 		#print(f"previous action on turn {turn_number}", builder_actions_chosen[-1] if turn_number%2==1 else forbidder_actions_chosen[-1] if len(forbidder_actions_chosen)!=0 else "empty")
 		batch_stats[winner] += 1
@@ -168,7 +176,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 	return batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats
 
 
-def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
+def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu=False):
 	builder_observations = deque()
 	builder_actions_probs = deque()
 	builder_actions_chosen = deque()
@@ -201,6 +209,9 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 			for k in range(2*game.M):
 				observation = observation.to(device)
 				action_probs = builder_policy(observation)[0][-1]
+
+				action_probs = action_probs + action_noise.sample()
+
 				action_chosen = Categorical(probs = action_probs).sample()
 				formatted_action_probs.append(action_probs)
 				formatted_action_chosen.append(action_chosen)
@@ -226,6 +237,9 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 			for k in range(game.N):
 				observation = observation.to(device)
 				action_probs = forbidder_policy(observation)[0][-1]
+
+				action_probs = action_probs + action_noise.sample()
+
 				action_chosen = Categorical(probs = action_probs).sample()
 				formatted_action_probs.append(action_probs)
 				formatted_action_chosen.append(action_chosen)
@@ -251,9 +265,9 @@ def run_trajectory(game, builder_policy, forbidder_policy, device, evalu=False):
 			winner = "nobody_wins"
 
 	if evalu:
-		return (builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn, winner)
+		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn, winner
 	else:
-		return (builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner)
+		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner
 
 
 def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_actions, batch_forbidder_actions, batch_builder_returns, batch_forbidder_returns, device, batch_stats):
@@ -308,8 +322,12 @@ def evaluate(game, batch, builder_policy, forbidder_policy, device):
 	with torch.no_grad():
 		builder_policy.eval()
 		forbidder_policy.eval()
-		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, device)
-		return batch_stats
+		epsilon = 2**-10
+		action_noise = Uniform(torch.tensor([0.0 for k in range(N_TOKENS)]),torch.tensor([epsilon for k in range(N_TOKENS)]))
+		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, device)
+	builder_policy.train()
+	forbidder_policy.train()
+	return batch_stats
 	
 
 def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, training_stats, batch_stats, best_so_far):
@@ -394,16 +412,19 @@ def main():
 	forbidder_policy.to(device)
 	
 	game = CompetiClique()
-
+	
 	for batch in range(NUM_BATCHES):
 		builder_policy.train()
 		forbidder_policy.train()
+		
+		action_noise = Deterministic(N_TOKENS)
 		
 		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
 																																					BATCH_SIZE,
 																																					batch, 
 																																					builder_policy, 
 																																					forbidder_policy, 
+																																					action_noise,
 																																					device)
 		
 		print(f"Batch {batch} Statistics:")
@@ -437,6 +458,8 @@ def main():
 						 batch_stats, 
 						 best_so_far)
 		
+		temperature -= 1
+
 		print()
 		print()
 
