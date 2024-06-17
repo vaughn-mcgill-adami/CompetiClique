@@ -457,8 +457,6 @@ def main():
 						 training_stats, 
 						 batch_stats, 
 						 best_so_far)
-		
-		temperature -= 1
 
 		print()
 		print()
