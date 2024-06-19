@@ -22,11 +22,12 @@ MAX_VERTICES_PER_FORBIDDER_TURN = 1
 
 #Model Parameters.
 LAYERS = 6
-HEADS = 4
-EMBEDDING_DIM = 64
-MLP_DIM = 96
+HEADS = 6
+EMBEDDING_DIM = 96
+MLP_DIM = 128
 
 LOAD_SAVED_WEIGHTS = False
+LOAD_PRETRAINED = True
 
 #Logging Parameters
 BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
@@ -38,7 +39,7 @@ SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
 
 #Training Parameters
-DEVICE = 'cpu'
+DEVICE = 'cuda:0'
 
 EVAL_ONLY = False #not sure if this is even used anywhere.
 
@@ -50,10 +51,7 @@ LEARNING_RATE = 0.0005
 DISCOUNT_FACTOR = 0.9
 
 #Pretraining specific parameters
-PRETRAIN_BATCH_SIZE = 5000
-PRETRAIN_LEARNING_RATE = 0.001
-PRETRAIN_DISCOUNT_FACTOR = 1.0
-
+PRETRAIN_BATCH_SIZE = BATCH_SIZE
 WIDTH = 2
 MAXLOOKAHEAD = 16
 

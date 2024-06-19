@@ -29,14 +29,14 @@ class Deterministic():
 	def sample(self):
 		return self.zeros
 
-def update_embedding_size(embedding, vocab_size):
+def update_embedding_size(embedding, vocab_size, device):
 	with torch.no_grad():
-		embedding.weight = nn.Parameter(torch.cat((embedding.weight, torch.randn(vocab_size - embedding.weight.shape[0], EMBEDDING_DIM) ), dim=0))
+		embedding.weight = nn.Parameter(torch.cat((embedding.weight, torch.randn(vocab_size - embedding.weight.shape[0], EMBEDDING_DIM).to(device) ), dim=0))
 
-def update_final_layer(layer, vocab_size):
+def update_final_layer(layer, vocab_size, device):
 	with torch.no_grad():
-		layer.weight = nn.Parameter(torch.cat((layer.weight, torch.randn(vocab_size - layer.weight.shape[0], EMBEDDING_DIM) ), dim=0))
-		layer.bias = nn.Parameter(torch.cat((layer.bias, torch.randn(vocab_size - layer.bias.shape[0]) ), dim=0))
+		layer.weight = nn.Parameter(torch.cat((layer.weight, torch.randn(vocab_size - layer.weight.shape[0], EMBEDDING_DIM).to(device)), dim=0))
+		layer.bias = nn.Parameter(torch.cat((layer.bias, torch.randn(vocab_size - layer.bias.shape[0]).to(device) ), dim=0))
 
 def load_training_history(device):
 	builder_state = torch.load(BUILDERPOLICYOPTPATH, map_location=device)
@@ -64,7 +64,7 @@ def load_training_history(device):
 											 d_mlp=MLP_DIM,
 											 n_tokens=builder_old_n_tokens,
 											 n_positions=builder_old_n_positions,
-											 n_out=builder_old_n_out)
+											 n_out=builder_old_n_out).to(device)
 
 	forbidder_old_n_tokens = forbidder_state['forbidder_policy_state_dict']['vertex_embedding.weight'].shape[0]
 	forbidder_old_n_positions = forbidder_state['forbidder_policy_state_dict']['position_embedding.weight'].shape[0]
@@ -76,7 +76,7 @@ def load_training_history(device):
 											 d_mlp=MLP_DIM,
 											 n_tokens=forbidder_old_n_tokens,
 											 n_positions=forbidder_old_n_positions,
-											 n_out=forbidder_old_n_out)
+											 n_out=forbidder_old_n_out).to(device)
 
 	builder_policy.load_state_dict(builder_state['builder_policy_state_dict'])
 	print('loaded builder policy')
@@ -85,22 +85,26 @@ def load_training_history(device):
 
 	assert len(training_stats) != 0
 	print(len(training_stats))
-	
-	best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats, eval_stats in training_stats),
-								"forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats)
-								}
-	print('best builder average return :', best_so_far['builder'])
-	print('best forbidder average return :', best_so_far['forbidder'])
-	print('second latest builder average return :', training_stats[len(training_stats) - 1][0]['average_builder_return'])
-	print('second latest forbidder average return :', training_stats[len(training_stats) - 1][0]['average_forbidder_return'])
-	
-	update_embedding_size(builder_policy.vertex_embedding, N_TOKENS)
-	update_embedding_size(builder_policy.position_embedding, POSITIONS)
-	update_embedding_size(forbidder_policy.vertex_embedding, N_TOKENS)
-	update_embedding_size(forbidder_policy.position_embedding, POSITIONS)
 
-	update_final_layer(builder_policy.final_linear, N_TOKENS)
-	update_final_layer(forbidder_policy.final_linear, N_TOKENS)
+	best_so_far = {"builder" : float('-inf'), 
+									"forbidder" : float('-inf')
+									}
+
+	if not LOAD_PRETRAINED:
+		best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats, eval_stats in training_stats),
+										"forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats)}
+		print('best builder average return :', best_so_far['builder'])
+		print('best forbidder average return :', best_so_far['forbidder'])
+		print('second latest builder average return :', training_stats[len(training_stats) - 1][0]['average_builder_return'])
+		print('second latest forbidder average return :', training_stats[len(training_stats) - 1][0]['average_forbidder_return'])
+	
+	update_embedding_size(builder_policy.vertex_embedding, N_TOKENS, device)
+	update_embedding_size(builder_policy.position_embedding, POSITIONS, device)
+	update_embedding_size(forbidder_policy.vertex_embedding, N_TOKENS, device)
+	update_embedding_size(forbidder_policy.position_embedding, POSITIONS, device)
+
+	update_final_layer(builder_policy.final_linear, N_TOKENS, device)
+	update_final_layer(forbidder_policy.final_linear, N_TOKENS, device)
 	
 	print('builder_policy_state_dict (2): ')
 	for name, val in builder_policy.named_parameters():
@@ -420,6 +424,8 @@ def update_pretraining_policies(builder_policy, forbidder_policy, builder_optimi
 		indices = torch.arange(N_TOKENS).to(device)[None, None, :] == BY[:, :, None]
 		builder_loss = -torch.mean(torch.log(builder_policy(BX)[indices]))
 
+		print('builder_loss',builder_loss.item())
+
 		builder_loss.backward()
 		builder_optimizer.step()
 		builder_optimizer.zero_grad()
@@ -429,6 +435,8 @@ def update_pretraining_policies(builder_policy, forbidder_policy, builder_optimi
 
 		indices = torch.arange(N_TOKENS).to(device)[None, None, :] == FY[:, :, None]
 		forbidder_loss = -torch.mean(torch.log(forbidder_policy(FX)[indices]))
+
+		print('forbidder_loss', forbidder_loss.item())
 
 		forbidder_loss.backward()
 		forbidder_optimizer.step()
@@ -544,7 +552,7 @@ def main():
 		forbidder_policy.train()
 		
 		if args.pretrain:
-			batch_builder_observations, batch_builder_actions, batch_forbidder_observations, batch_forbidder_actions, batch_stats = collect_batch_of_brute_trajectories(game, BATCH_SIZE, WIDTH, MAXLOOKAHEAD)
+			batch_builder_observations, batch_builder_actions, batch_forbidder_observations, batch_forbidder_actions, batch_stats = collect_batch_of_brute_trajectories(game, PRETRAIN_BATCH_SIZE, WIDTH, MAXLOOKAHEAD)
 
 			print(f"Batch {batch} Statistics:")
 			for key, value in batch_stats.items():
