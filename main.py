@@ -2,10 +2,10 @@ from competiclique_the_game import CompetiClique
 from simple_decoder_transformer import SimpleDecoderTransformer#, set_batch_norm_momentum
 from config import *
 
-from dynamic_programming_solution import builder_turn, avoider_turn
-
 from copy import deepcopy
 from collections import deque
+import time
+import argparse
 
 import torch
 from torch.distributions.categorical import Categorical
@@ -14,16 +14,20 @@ import torch.nn.functional as F
 from torch import nn
 
 from rich.progress import track
+from rich.progress import Progress
+#import networkx as nx
+#from matplotlib import pyplot as plt
 
 class Deterministic():
 	"""
 	A dummy class that is used in place of a distribution over non-negative "noise vectors" of shape size
 	"""
-	def __init__(self, size):
+	def __init__(self, size, device):
 		self.size = size
+		self.zeros = torch.zeros(self.size).to(device)
 		return
 	def sample(self):
-		return torch.zeros(self.size)
+		return self.zeros
 
 def update_embedding_size(embedding, vocab_size):
 	with torch.no_grad():
@@ -55,24 +59,24 @@ def load_training_history(device):
 	builder_old_n_out = builder_state['builder_policy_state_dict']['final_linear.bias'].shape[0]
 
 	builder_policy = SimpleDecoderTransformer(L = LAYERS, 
-										   H=HEADS, 
-										   d_e=EMBEDDING_DIM,
-										   d_mlp=MLP_DIM,
-										   n_tokens=builder_old_n_tokens,
-										   n_positions=builder_old_n_positions,
-										   n_out=builder_old_n_out)
+											 H=HEADS, 
+											 d_e=EMBEDDING_DIM,
+											 d_mlp=MLP_DIM,
+											 n_tokens=builder_old_n_tokens,
+											 n_positions=builder_old_n_positions,
+											 n_out=builder_old_n_out)
 
 	forbidder_old_n_tokens = forbidder_state['forbidder_policy_state_dict']['vertex_embedding.weight'].shape[0]
 	forbidder_old_n_positions = forbidder_state['forbidder_policy_state_dict']['position_embedding.weight'].shape[0]
 	forbidder_old_n_out = forbidder_state['forbidder_policy_state_dict']['final_linear.bias'].shape[0]
 
 	forbidder_policy = SimpleDecoderTransformer(L = LAYERS, 
-										   H=HEADS, 
-										   d_e=EMBEDDING_DIM,
-										   d_mlp=MLP_DIM,
-										   n_tokens=forbidder_old_n_tokens,
-										   n_positions=forbidder_old_n_positions,
-										   n_out=forbidder_old_n_out)
+											 H=HEADS, 
+											 d_e=EMBEDDING_DIM,
+											 d_mlp=MLP_DIM,
+											 n_tokens=forbidder_old_n_tokens,
+											 n_positions=forbidder_old_n_positions,
+											 n_out=forbidder_old_n_out)
 
 	builder_policy.load_state_dict(builder_state['builder_policy_state_dict'])
 	print('loaded builder policy')
@@ -130,10 +134,10 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 	batch_forbidder_returns = deque()
 
 	batch_stats = {'average_game_length' : deque(),
-				   'max_game_length' : 0,
-				   'builder_wins' : 0,
-				   'forbidder_wins' : 0,
-				   'nobody_wins' : 0}
+					 'max_game_length' : 0,
+					 'builder_wins' : 0,
+					 'forbidder_wins' : 0,
+					 'nobody_wins' : 0}
 
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
 		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
@@ -180,45 +184,81 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 	
 	return batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats
 
-"""
-TODO: imitation learn some of the dynamic programming solution
 
-Aside: why reward to go works:
-maybe because the expected reward of a trajectory is a martingale???
-
-E[r(trajectory[:N])] is the original RL objective, where N is episode length
-
-= E[sum(r(trajectory[k]) for k in range(N)))
-
-E[r(trajectory[:N]) | trajectory[:k]] = 
-E[r(trajectory[:k]) | trajectory[:k]] + E[r(trajectory[k:N]) | trajectory[:k]] =
-r(trajectory[:k]) + E[r(trajectory[k:N]) | trajectory[:k]]
-
-Now observe that at time k, no action in trajectory[:k] is a function of the policy.
-Hence this is a constant term in the objective, whose gradient is 0.
-
-"""
-"""
-def sample_almost_brute_force_trajectory(game, device, evalu=False):
-	builder_observations = deque()
-	builder_actions_probs = deque()
-	builder_actions_chosen = deque()
-	builder_rewards = deque()
+def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
+	builder_observations = deque() #not organized by trajectory; flattened "trajectory" dimension
+	builder_actions = deque()
 	forbidder_observations = deque()
-	forbidder_actions_probs = deque()
-	forbidder_actions_chosen = deque()
-	forbidder_rewards = deque()
+	forbidder_actions = deque()
+	batch_stats = dict()
 
-	graphs_each_turn = deque()
+	batch_stats = {'average_game_length' : deque(),
+					 'max_game_length' : 0,
+					 'builder_wins' : 0,
+					 'forbidder_wins' : 0,
+					 'nobody_wins' : 0}
+	
+	with Progress() as progress:
+		batch_progress = progress.add_task("Generating batch: ", total = batch_size)
+		episode_num = 0
+		
+		while episode_num < batch_size:
+			game.reset() #sets K,N,M to random values.
 
-	turn_number = 0
-	winner = ""
+			clique_size = game.K
+			edges_per_builder_turn = game.M
+			vertices_per_forbidder_turn = game.N 
+			start_vertex = list(game.G.nodes)[0]
 
-	builder_turn(G, M, N, MAXLOOKAHEAD, ax=None)
+			#print(episode_num, clique_size, edges_per_builder_turn, vertices_per_forbidder_turn, start_vertex)
 
+			trajectories = game.get_brute_trajectories(width, maxlookahead)
+			for trajectory_num, (trajectory, cost) in enumerate(trajectories):
+				#print("trajectory: ", trajectory_num)
+				obs = game.reset(clique_size = clique_size, 
+								 edges_per_builder_turn = edges_per_builder_turn, 
+								 vertices_per_forbidder_turn = vertices_per_forbidder_turn, 
+								 start_vertex = start_vertex)
+				
+				for turn_num, (graph, action, reward) in enumerate(trajectory):
+					#color_map = deque('red' if graph.nodes[node]['forbidden'] else 'blue' for node in graph)
+					#nx.draw(graph, node_color=color_map, with_labels=True)
+					#plt.show()
+					if turn_num%2 == 0:
+						obs = torch.squeeze(obs)
+						builder_observations.append(obs)
+						action = torch.tensor(action)
+						action = torch.flatten(action) + torch.tensor(VERTEX_VOCAB_STARTS_AT)
+						prevobs = obs
+						obs, rew, cont = game.step(action, player='builder')
+						#print(prevobs, action, graph.nodes, game.G.nodes)
 
-	return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner
-"""
+						builder_actions.append(action)
+					else:
+						obs = torch.squeeze(obs)
+						forbidder_observations.append(obs)
+						action = torch.tensor(action)
+						action = torch.flatten(action) + torch.tensor(VERTEX_VOCAB_STARTS_AT)
+						prevobs = obs
+						obs, rew, cont = game.step(action, player='forbidder')
+						#print(prevobs, action, graph.nodes, game.G.nodes)
+
+						forbidder_actions.append(action)
+						
+				batch_stats['nobody_wins' if rew == 0 else 'builder_wins' if turn_num%2 == 0 else 'forbidder_wins'] += 1
+				batch_stats['average_game_length'].append(turn_num)
+				batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_num)
+
+			advance = len(trajectories)
+			episode_num += advance
+			progress.update(batch_progress, advance=advance)
+
+	assert len(builder_actions) == len(builder_observations)
+	assert len(forbidder_actions) == len(forbidder_observations)
+	
+	batch_stats['average_game_length'] = sum(batch_stats['average_game_length'])/len(batch_stats['average_game_length'])
+	
+	return builder_observations, builder_actions, forbidder_observations, forbidder_actions, batch_stats
 
 def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu=False):
 	builder_observations = deque()
@@ -230,10 +270,7 @@ def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device,
 	forbidder_actions_chosen = deque()
 	forbidder_rewards = deque()
 
-	observation = game.reset(clique_size = game.rng.integers(low=MIN_CLIQUE_SIZE, high=MAX_CLIQUE_SIZE + 1, size=1)[0],
-							 edges_per_builder_turn=game.rng.integers(low=MIN_EDGES_PER_BUILDER_TURN, high=MAX_EDGES_PER_BUILDER_TURN + 1, size=1)[0],
-							 vertices_per_forbidder_turn=game.rng.integers(low=MIN_VERTICES_PER_FORBIDDER_TURN, high=MAX_VERTICES_PER_FORBIDDER_TURN + 1, size=1)[0]
-							)
+	observation = game.reset()
 	turn_number = 0
 
 	graphs_each_turn = deque()
@@ -320,10 +357,10 @@ def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_action
 
 		batch_builder_actions = list(F.pad(actions, (0,longest_trajectory_len - len(actions)), value = 1.0) for actions in batch_builder_actions)
 		batch_builder_actions = torch.stack(batch_builder_actions, dim = 0)
-
+	
 		batch_builder_returns = (list(F.pad(returns, (0, longest_trajectory_len - len(returns)), value = 0.0) for returns in batch_builder_returns))
 		batch_builder_returns = torch.stack(batch_builder_returns, dim = 0).to(device)
-
+		
 		batch_stats['average_builder_return'] = torch.mean(batch_builder_returns[:,0]).cpu().item()
 		print('average_builder_return', batch_stats['average_builder_return'])
 
@@ -362,15 +399,65 @@ def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_action
 			batch_stats['forbidder_loss'] = forbidder_loss.cpu().item()
 			print('forbidder_loss', batch_stats['forbidder_loss'])
 
+def update_pretraining_policies(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, batch_builder_observations, batch_builder_actions, batch_forbidder_observations, batch_forbidder_actions, device, batch_stats):
+	
+	builder_batch = [torch.cat((observation, action)) for observation, action in zip(batch_builder_observations, batch_builder_actions)]
+	forbidder_batch = [torch.cat((observation, action)) for observation, action in zip(batch_forbidder_observations, batch_forbidder_actions)]
+
+	def pad_batch(batch):
+		longest_trajectory_len = max(len(trajectory) for trajectory in batch)
+		batch = list(F.pad(trajectory, (0, longest_trajectory_len - len(trajectory)), value=PAD_TOKEN) for trajectory in batch)
+		batch = torch.stack(batch, dim = 0)
+		return batch
+
+	builder_batch = pad_batch(builder_batch).to(device)
+	forbidder_batch = pad_batch(forbidder_batch).to(device)
+
+	if len(builder_batch) != 0:
+		BX = builder_batch[:-1]
+		BY = builder_batch[1:]
+
+		indices = torch.arange(N_TOKENS).to(device)[None, None, :] == BY[:, :, None]
+		builder_loss = -torch.mean(torch.log(builder_policy(BX)[indices]))
+
+		builder_loss.backward()
+		builder_optimizer.step()
+		builder_optimizer.zero_grad()
+	if len(forbidder_batch) != 0:
+		FX = forbidder_batch[:-1]
+		FY = forbidder_batch[1:]
+
+		indices = torch.arange(N_TOKENS).to(device)[None, None, :] == FY[:, :, None]
+		forbidder_loss = -torch.mean(torch.log(forbidder_policy(FX)[indices]))
+
+		forbidder_loss.backward()
+		forbidder_optimizer.step()
+		forbidder_optimizer.zero_grad()
+
 def evaluate(game, batch, builder_policy, forbidder_policy, device):
+	batch_stats = {}
+
 	with torch.no_grad():
 		builder_policy.eval()
 		forbidder_policy.eval()
-		epsilon = 2**-10
-		action_noise = Uniform(torch.tensor([0.0 for k in range(N_TOKENS)]),torch.tensor([epsilon for k in range(N_TOKENS)]))
+		action_noise = Deterministic(N_TOKENS, device)
 		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, device)
 	builder_policy.train()
 	forbidder_policy.train()
+
+	if len(batch_builder_actions) != 0:
+		longest_trajectory_len = max(len(trajectory) for trajectory in batch_builder_actions)
+		batch_builder_returns = (list(F.pad(returns, (0, longest_trajectory_len - len(returns)), value = 0.0) for returns in batch_builder_returns))
+		batch_builder_returns = torch.stack(batch_builder_returns, dim = 0).to(device)
+
+	if len(batch_forbidder_actions) != 0:
+		longest_trajectory_len = max(len(trajectory) for trajectory in batch_forbidder_actions)
+		batch_forbidder_returns = (list(F.pad(returns, (0, longest_trajectory_len - len(returns)), value = 0.0) for returns in batch_forbidder_returns))
+		batch_forbidder_returns = torch.stack(batch_forbidder_returns, dim = 0).to(device)
+
+	batch_stats['average_builder_return'] = torch.mean(batch_builder_returns[:,0])
+	batch_stats['average_forbidder_return'] = torch.mean(batch_forbidder_returns[:,0])
+
 	return batch_stats
 	
 
@@ -413,30 +500,32 @@ def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_op
 		best_so_far['forbidder'] = batch_stats['average_forbidder_return']
 
 def main():
+	parser = argparse.ArgumentParser()
+
+	parser.add_argument('-pt', '--pretrain', action = 'store_true')
+	args = parser.parse_args()
+
 	device = torch.device(DEVICE)
 	
-	builder_policy = None
-	forbidder_policy = None
-	builder_optimizer = None
-	forbidder_optimizer	= None
-
 	training_stats = []
 
 	best_so_far = {"builder" : float('-inf'), 
 									"forbidder" : float('-inf')
 									}
+	
+	game = CompetiClique()
 
 	if LOAD_SAVED_WEIGHTS:
 		training_stats, best_so_far, builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer  = load_training_history(device)
 	else:
 		model = SimpleDecoderTransformer(L=LAYERS, 
-								   H=HEADS, 
-								   d_e=EMBEDDING_DIM, 
-								   d_mlp = MLP_DIM, 
-								   n_tokens = N_TOKENS, 
-								   n_positions = POSITIONS,
-								   n_out = N_OUT).to(device)
-		builder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
+									H=HEADS, 
+									d_e=EMBEDDING_DIM, 
+									d_mlp = MLP_DIM, 
+									n_tokens = N_TOKENS, 
+									n_positions = POSITIONS,
+									n_out = N_OUT).to(device)
+		builder_policy = model#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 		forbidder_policy = deepcopy(model)#SimpleDecoderTransformer(L = 2, H = 4, d_e = 32, d_mlp = 48)
 
 		builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
@@ -444,66 +533,99 @@ def main():
 
 		print('WARNING: training will overwrite existing weights because LOAD_SAVED_WEIGHTS = False in config.py')
 	
-	print('start training? (y to continue / n to cancel): ')
-	inp = None
-	while inp != 'y':
-		inp = input()
-		if inp == 'n':
-			print('training cancelled.')
-			return
-	
+	print(builder_policy.vertex_embedding.weight.shape)
+	print(forbidder_policy.vertex_embedding.weight.shape)
+
 	builder_policy.to(device)
 	forbidder_policy.to(device)
-	
-	game = CompetiClique()
-	
+
 	for batch in range(NUM_BATCHES):
 		builder_policy.train()
 		forbidder_policy.train()
 		
-		action_noise = Deterministic(N_TOKENS)
-		
-		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
-																																					BATCH_SIZE,
-																																					batch, 
-																																					builder_policy, 
-																																					forbidder_policy, 
-																																					action_noise,
-																																					device)
-		
-		print(f"Batch {batch} Statistics:")
-		for key, value in batch_stats.items():
-			print(key, value)
-		
-		update_policies(builder_optimizer, 
-									 forbidder_optimizer, 
-									 batch_builder_actions, 
-									 batch_forbidder_actions, 
-									 batch_builder_returns, 
-									 batch_forbidder_returns, 
-									 device, 
-									 batch_stats)
-		
-		"""
-		eval_stats = evaluate(game, batch, builder_policy, forbidder_policy, device)
-		
-		print(f"Eval Statistics:")
-		for key, value in eval_stats.items():
-			print(key, value)
-		"""
-		
-		training_stats.append((batch_stats, None))
+		if args.pretrain:
+			batch_builder_observations, batch_builder_actions, batch_forbidder_observations, batch_forbidder_actions, batch_stats = collect_batch_of_brute_trajectories(game, BATCH_SIZE, WIDTH, MAXLOOKAHEAD)
 
-		checkpoint(builder_policy, 
-						 forbidder_policy, 
-						 builder_optimizer, 
-						 forbidder_optimizer, 
-						 training_stats, 
-						 batch_stats, 
-						 best_so_far)
+			print(f"Batch {batch} Statistics:")
+			for key, value in batch_stats.items():
+				print(key, value)
 
-		print()
-		print()
+			start_backprop = time.time()
+			update_pretraining_policies(builder_policy,
+										forbidder_policy,
+										builder_optimizer, 
+										forbidder_optimizer, 
+										batch_builder_observations,
+										batch_builder_actions,
+										batch_forbidder_observations,
+										batch_forbidder_actions,
+										device, 
+										batch_stats)
+			print(f"Backpropagation took: {time.time() - start_backprop} secs")
+
+			eval_stats = evaluate(game, batch, builder_policy, forbidder_policy, device)
+			
+			print(f"Eval Statistics:")
+			for key, value in eval_stats.items():
+				print(key, value)
+			
+			training_stats.append((batch_stats, None))
+
+			checkpoint(builder_policy, 
+							forbidder_policy, 
+							builder_optimizer, 
+							forbidder_optimizer, 
+							training_stats, 
+							eval_stats, 
+							best_so_far)
+
+			print()
+			print()
+		else:
+			action_noise = Deterministic(size=N_TOKENS,device = device)
+
+			batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
+																																						BATCH_SIZE,
+																																						batch, 
+																																						builder_policy, 
+																																						forbidder_policy, 
+																																						action_noise,
+																																						device)
+		
+			print(f"Batch {batch} Statistics:")
+			for key, value in batch_stats.items():
+				print(key, value)
+			
+			start_backprop = time.time()
+			update_policies(builder_optimizer, 
+										forbidder_optimizer, 
+										batch_builder_actions, 
+										batch_forbidder_actions, 
+										batch_builder_returns, 
+										batch_forbidder_returns, 
+										device, 
+										batch_stats)
+			print(f"Backpropagation took: {time.time() - start_backprop} secs")
+
+			eval_stats = evaluate(game, batch, builder_policy, forbidder_policy, device)
+			
+			print(f"Eval Statistics:")
+			for key, value in eval_stats.items():
+				print(key, value)
+			
+			training_stats.append((batch_stats, None))
+
+			checkpoint(builder_policy, 
+							forbidder_policy, 
+							builder_optimizer, 
+							forbidder_optimizer, 
+							training_stats, 
+							batch_stats, 
+							best_so_far)
+
+			print()
+			print()
+
 
 if __name__ == '__main__':
 	main()

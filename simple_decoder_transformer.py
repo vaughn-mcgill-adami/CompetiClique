@@ -14,18 +14,18 @@ class SimpleDecoderTransformer(nn.Module):
 	def __init__(self, L : int, H : int, d_e : int, d_mlp : int, n_tokens : int, n_positions : int, n_out : int):
 		super().__init__()
 		self.vertex_embedding = nn.Embedding(num_embeddings = n_tokens,
-									   		 embedding_dim = d_e
+										 		 embedding_dim = d_e
 											)
 		self.position_embedding = nn.Embedding(num_embeddings = n_positions,
-										 	   embedding_dim = d_e
-										 	  )
+										 		 embedding_dim = d_e
+										 		)
 		self.trunk = nn.ModuleList(
 			[ nn.ModuleList([
 				nn.LayerNorm(d_e),
 				nn.MultiheadAttention(d_e, H, dropout=0.0, batch_first=True),
 				nn.LayerNorm(d_e),
 				nn.Linear(in_features=d_e, 
-			  			  out_features=d_mlp),
+								out_features=d_mlp),
 				nn.GELU(),
 				nn.Linear(d_mlp, d_e)]
 		 	) for layer in range(L)]
@@ -34,8 +34,10 @@ class SimpleDecoderTransformer(nn.Module):
 		self.final_layer_norm = nn.LayerNorm(d_e)
 		self.final_linear = nn.Linear(d_e, n_out)
 
+		self.my_device_for_mask = torch.device(DEVICE)
+
 	def get_causal_mask(self, timesteps):
-		mask = torch.tensor([[source_time_step > target_time_step for source_time_step in range(timesteps)] for target_time_step in range(timesteps)])
+		mask = torch.tensor([[source_time_step > target_time_step for source_time_step in range(timesteps)] for target_time_step in range(timesteps)]).to(self.my_device_for_mask)
 		return mask
 
 	def forward(self, X):
