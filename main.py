@@ -27,16 +27,8 @@ class Deterministic():
 	def sample(self):
 		return self.zeros
 
-def update_embedding_size(embedding, vocab_size, device):
-	with torch.no_grad():
-		embedding.weight = nn.Parameter(torch.cat((embedding.weight, torch.randn(vocab_size - embedding.weight.shape[0], EMBEDDING_DIM).to(device) ), dim=0))
-
-def update_final_layer(layer, vocab_size, device):
-	with torch.no_grad():
-		layer.weight = nn.Parameter(torch.cat((layer.weight, torch.randn(vocab_size - layer.weight.shape[0], EMBEDDING_DIM).to(device)), dim=0))
-		layer.bias = nn.Parameter(torch.cat((layer.bias, torch.randn(vocab_size - layer.bias.shape[0]).to(device) ), dim=0))
-
 def load_training_history(device):
+	for path in [BUILDERPOLICYOPTPATH, FORBIDDERPOLICYOPTPATH]
 	builder_state = torch.load(BUILDERPOLICYOPTPATH, map_location=device)
 	forbidder_state = torch.load(FORBIDDERPOLICYOPTPATH, map_location=device)
 
@@ -96,14 +88,9 @@ def load_training_history(device):
 		print('second latest builder average return :', training_stats[len(training_stats) - 1][0]['average_builder_return'])
 		print('second latest forbidder average return :', training_stats[len(training_stats) - 1][0]['average_forbidder_return'])
 	
-	update_embedding_size(builder_policy.vertex_embedding, N_TOKENS, device)
-	update_embedding_size(builder_policy.position_embedding, POSITIONS, device)
-	update_embedding_size(forbidder_policy.vertex_embedding, N_TOKENS, device)
-	update_embedding_size(forbidder_policy.position_embedding, POSITIONS, device)
+	for policy in [builder_policy, forbidder_policy]:
+		policy.update_embedding_sizes(N_TOKENS, POSITIONS)
 
-	update_final_layer(builder_policy.final_linear, N_TOKENS, device)
-	update_final_layer(forbidder_policy.final_linear, N_TOKENS, device)
-	
 	print('builder_policy_state_dict (2): ')
 	for name, val in builder_policy.named_parameters():
 		print(name, val.shape)

@@ -8,10 +8,6 @@ import numpy as np
 
 from config import *
 
-"""
-TODO: Possibly give the forbidder a reward when the builder connects all vertices in the vocabulary, 
-			though this event will never happen.
-"""
 
 def edge_list_to_action_tensor(edges):
 	return torch.cat([torch.tensor([u,v]) for u,v in edges])
@@ -25,13 +21,13 @@ class CompetiClique():
 		
 		self.rng = np.random.default_rng()
 		
-		self.too_many_vertices_penalty = -1
-		self.outside_graph_penalty = -1
-		self.uisv_penalty = -1
-		self.forbidden_edge_penalty = -1
-		self.existing_edge_penalty = -1
-		self.not_vertex_penalty = -1
-		self.already_forbidden_vertex_penalty = -1
+		self.too_many_vertices_penalty = -2
+		self.outside_graph_penalty = -2
+		self.uisv_penalty = -2
+		self.forbidden_edge_penalty = -2
+		self.existing_edge_penalty = -2
+		self.not_vertex_penalty = -2
+		self.already_forbidden_vertex_penalty = -2
 
 		self.player_won = {"builder": False, "forbidder" : False}
 		self.win_reward = 1
