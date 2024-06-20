@@ -17,4 +17,8 @@ When training locally on a laptop's CPU with less-than-optimal-cooling, lowering
 maximum clock rate prevented overheating.
 
 If you use Intel P-State and are on Linux:
+
+replace 70 with the needed percentage of max clock rate.
+echo "70" | sudo tee /sys/devices/system/cpu/intel_pstate/max_perf_pct
+
 https://stackoverflow.com/a/76912811

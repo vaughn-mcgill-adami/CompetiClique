@@ -15,8 +15,6 @@ from torch import nn
 
 from rich.progress import track
 from rich.progress import Progress
-#import networkx as nx
-#from matplotlib import pyplot as plt
 
 class Deterministic():
 	"""
@@ -190,7 +188,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 
 
 def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
-	builder_observations = deque() #not organized by trajectory; flattened "trajectory" dimension
+	builder_observations = deque() #flattened "trajectory" dimension
 	builder_actions = deque()
 	forbidder_observations = deque()
 	forbidder_actions = deque()
@@ -233,7 +231,7 @@ def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
 						builder_observations.append(obs)
 						action = torch.tensor(action)
 						action = torch.flatten(action) + torch.tensor(VERTEX_VOCAB_STARTS_AT)
-						prevobs = obs
+						#prevobs = obs
 						obs, rew, cont = game.step(action, player='builder')
 						#print(prevobs, action, graph.nodes, game.G.nodes)
 
@@ -243,7 +241,7 @@ def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
 						forbidder_observations.append(obs)
 						action = torch.tensor(action)
 						action = torch.flatten(action) + torch.tensor(VERTEX_VOCAB_STARTS_AT)
-						prevobs = obs
+						#prevobs = obs
 						obs, rew, cont = game.step(action, player='forbidder')
 						#print(prevobs, action, graph.nodes, game.G.nodes)
 
@@ -551,10 +549,10 @@ def main():
 		builder_policy.train()
 		forbidder_policy.train()
 		
-		if args.pretrain:
+		if args.pretrain and batch%2 == 0:
 			batch_builder_observations, batch_builder_actions, batch_forbidder_observations, batch_forbidder_actions, batch_stats = collect_batch_of_brute_trajectories(game, PRETRAIN_BATCH_SIZE, WIDTH, MAXLOOKAHEAD)
 
-			print(f"Batch {batch} Statistics:")
+			print(f"Batch {batch} (Supervised) Statistics:")
 			for key, value in batch_stats.items():
 				print(key, value)
 
@@ -577,7 +575,7 @@ def main():
 			for key, value in eval_stats.items():
 				print(key, value)
 			
-			training_stats.append((batch_stats, None))
+			training_stats.append((batch_stats, eval_stats))
 
 			checkpoint(builder_policy, 
 							forbidder_policy, 
@@ -600,7 +598,7 @@ def main():
 																																						action_noise,
 																																						device)
 		
-			print(f"Batch {batch} Statistics:")
+			print(f"Batch {batch} (RL) Statistics:")
 			for key, value in batch_stats.items():
 				print(key, value)
 			
@@ -621,14 +619,14 @@ def main():
 			for key, value in eval_stats.items():
 				print(key, value)
 			
-			training_stats.append((batch_stats, None))
+			training_stats.append((batch_stats, eval_stats))
 
 			checkpoint(builder_policy, 
 							forbidder_policy, 
 							builder_optimizer, 
 							forbidder_optimizer, 
 							training_stats, 
-							batch_stats, 
+							eval_stats, 
 							best_so_far)
 
 			print()

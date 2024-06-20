@@ -19,12 +19,12 @@ builder_states = torch.load("builder_policy_opt.pt")
 forbidder_states = torch.load("forbidder_policy_opt.pt")
 
 training_stats = builder_states['training_stats']
-builder_discounted_return = [batch_stats['average_builder_return'] for batch_stats, eval_stats in training_stats]
-forbidder_discounted_return = [batch_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats]
+builder_discounted_return = [eval_stats['average_builder_return'] for batch_stats, eval_stats in training_stats]
+forbidder_discounted_return = [eval_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats]
 
-builder_wins = [batch_stats['builder_wins'] for batch_stats, _ in training_stats]
-forbidder_wins = [batch_stats['forbidder_wins'] for batch_stats, _ in training_stats]
-nobody_wins = [batch_stats['nobody_wins'] for batch_stats, _ in training_stats]
+builder_wins = [eval_stats['builder_wins'] for batch_stats, eval_stats in training_stats]
+forbidder_wins = [eval_stats['forbidder_wins'] for batch_stats, eval_stats in training_stats]
+nobody_wins = [eval_stats['nobody_wins'] for batch_stats, eval_stats in training_stats]
 
 total = [b+f+n for b, f, n in zip(builder_wins, forbidder_wins, nobody_wins)]
 
@@ -65,7 +65,7 @@ device = torch.device(DEVICE)
 
 with torch.no_grad():
 	epsilon = 2**-10
-	action_noise = Deterministic(N_TOKENS)	
+	action_noise = Deterministic(N_TOKENS, device)	
 	builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu=True)
 
 	print(winner)

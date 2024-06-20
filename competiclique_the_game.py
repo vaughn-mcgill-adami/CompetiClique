@@ -278,6 +278,8 @@ class CompetiClique():
 		if maxlookahead <= 0:
 			return [([(possible_moves[0][0], possible_moves[0][1], 0)], self.MAXLOOKAHEAD)] #possibly makes avoider more optimistic...
 		
+		assert len(possible_moves[0]) == 2
+
 		for graph, action in possible_moves:
 			if self.detect_builder_win_of(graph):
 				return [([(graph, action, 1)], 0)] #note: graph is the graph resulting from action i.e. after action is performed
@@ -315,6 +317,9 @@ class CompetiClique():
 			return [([(possible_moves[0][0], possible_moves[0][1], 0)], self.MAXLOOKAHEAD)] #possibly makes avoider more optimistic... (for dyn prog, no affect on RL)
 		
 		futures = []
+
+		assert len(possible_moves[0]) == 2
+
 		for graph, action in possible_moves:
 			afterg = self.builder_brute_turn(graph, maxlookahead-1)
 			for future, cost in afterg:
