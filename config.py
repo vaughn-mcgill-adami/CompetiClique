@@ -26,8 +26,16 @@ HEADS = 6
 EMBEDDING_DIM = 96
 MLP_DIM = 128
 
+NN_ARCH_ARGS = {"L" : LAYERS, 
+                    "H" : HEADS, 
+                    "d_e" : EMBEDDING_DIM, 
+                    "d_mlp" : MLP_DIM, 
+                    "n_tokens" : N_TOKENS, 
+                    "n_positions" : POSITIONS,
+                    "n_out" : N_TOKENS}
+
 LOAD_SAVED_WEIGHTS = True
-LOAD_PRETRAINED = True
+#LOAD_PRETRAINED = True
 
 #Logging Parameters
 BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
@@ -35,8 +43,8 @@ BESTFORBIDDERPOLICYOPTPATH = "best_forbidder_policy_opt.pt"
 BUILDERPOLICYOPTPATH = "builder_policy_opt.pt"
 FORBIDDERPOLICYOPTPATH = "forbidder_policy_opt.pt"
 
-SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
-SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
+#SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
+#SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
 
 #Training Parameters
 DEVICE = 'cpu'
@@ -49,6 +57,8 @@ LEARNING_RATE = 0.00025
 
 #RL specific parameters
 DISCOUNT_FACTOR = 0.9
+
+TRAINING_PARAMS = {"learning_rate": LEARNING_RATE}
 
 #Pretraining specific parameters
 PRETRAIN_BATCH_SIZE = BATCH_SIZE
