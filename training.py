@@ -41,31 +41,25 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 				   'nobody_wins' : 0}
 	
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
-		builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
+		builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
 		#print(f"previous observation on turn {turn_number}:", prevobs)
 		#print(f"previous action on turn {turn_number}", builder_actions_chosen[-1] if turn_number%2==1 else forbidder_actions_chosen[-1] if len(forbidder_actions_chosen)!=0 else "empty")
 		batch_stats[winner] += 1
 		batch_stats['average_game_length'].append(turn_number)
+		print(type(batch_stats['max_game_length']), turn_number)
+
 		batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_number)
 		
-		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, )
+		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards)
+		forbidder_observations, forbidder_actions, forbidder_discounted_return = tensorify(forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards)
 
-		if len(forbidder_rewards) != 0:
-			print(len(forbidder_rewards) == len(forbidder_observations))
-			forbidder_rewards = torch.tensor(list(forbidder_rewards))
-			
-			forbidder_discounted_returns = torch.tensor([sum(DISCOUNT_FACTOR**i*reward for i, reward in enumerate(forbidder_rewards[k:])) for k in range(len(forbidder_rewards))])
-			forbidder_discounted_returns = forbidder_discounted_returns.repeat_interleave(game.N) #TODO: Possibly move before the discounting? Might keep it the way it is b/c good heuristic for larger M, N
-			#print("N = ", game.N)
+		batch_builder_observations.append(builder_observations)
+		batch_builder_actions.append(builder_actions)
+		batch_builder_returns.append(builder_discounted_return)
 
-			forbidder_actions_probs = torch.cat(list(forbidder_actions_probs))
-			forbidder_actions_chosen = torch.cat(list(forbidder_actions_chosen))
-
-			forbidder_actions = forbidder_actions_probs[torch.arange(len(forbidder_actions_probs)), forbidder_actions_chosen]
-
-			batch_forbidder_actions.append(forbidder_actions)
-			batch_forbidder_returns.append(forbidder_discounted_returns)
-			batch_forbidder_observations.append(forbidder_observations)
+		batch_forbidder_observations.append(forbidder_observations)
+		batch_forbidder_actions.append(forbidder_actions)
+		batch_forbidder_returns.append(forbidder_discounted_return)
 
 	batch_stats['average_game_length'] = sum(batch_stats['average_game_length'])/len(batch_stats['average_game_length'])
 	
@@ -233,9 +227,9 @@ def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device,
 			winner = "nobody_wins"
 
 	if evalu:
-		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, graphs_each_turn, winner
+		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, graphs_each_turn
 	else:
-		return builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, builder_observations, forbidder_observations, winner
+		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner
 
 
 def update_policies(builder_optimizer, forbidder_optimizer, batch_builder_actions, batch_forbidder_actions, batch_builder_returns, batch_forbidder_returns, device, batch_stats):

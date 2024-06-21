@@ -49,9 +49,6 @@ def main():
 	if BUILDERPOLICYOPTPATH is not None or FORBIDDERPOLICYOPTPATH is not None:
 		print(f'WARNING: training will overwrite existing weights of {'builder'}')
 	
-	print(builder.policy.vertex_embedding.weight.shape)
-	print(forbidder.policy.vertex_embedding.weight.shape)
-
 	for batch in range(NUM_BATCHES):
 		builder.train()
 		forbidder.train()

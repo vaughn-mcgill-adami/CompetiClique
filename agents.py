@@ -41,8 +41,8 @@ class ActorCriticAgent():
 			self.action_noise = action_noise
 		
 			self.player_name = player_name
-
-			self.training_stats
+			
+			self.training_stats = []
 
 	def load(self, path):
 		agent_state = torch.load(path, map_location=self.device)

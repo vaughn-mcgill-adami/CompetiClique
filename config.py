@@ -34,14 +34,11 @@ NN_ARCH_ARGS = {"L" : LAYERS,
                     "n_positions" : POSITIONS,
                     "n_out" : N_TOKENS}
 
-LOAD_SAVED_WEIGHTS = True
-#LOAD_PRETRAINED = True
-
 #Logging Parameters
-BESTBUILDERPOLICYOPTPATH = "best_builder_policy_opt.pt"
-BESTFORBIDDERPOLICYOPTPATH = "best_forbidder_policy_opt.pt"
-BUILDERPOLICYOPTPATH = "builder_policy_opt.pt"
-FORBIDDERPOLICYOPTPATH = "forbidder_policy_opt.pt"
+#BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
+#BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
+BUILDERPOLICYOPTPATH = None#"builder_policy_opt.pt"
+FORBIDDERPOLICYOPTPATH = None#"forbidder_policy_opt.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
