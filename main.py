@@ -16,6 +16,7 @@ def main():
 	args = parser.parse_args()
 
 	device = torch.device(DEVICE)
+	cpu = torch.device('cpu')
 	
 	training_stats = []
 
@@ -53,13 +54,20 @@ def main():
 		action_noise = Deterministic(size=N_TOKENS,device = device)
 
 		start_collect = time.time()
+		builder.policy.to(cpu)
+		forbidder.policy.to(cpu)
+
 		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, builder_actions_per_turn, forbidder_actions_per_turn = collect_batch_of_trajectories(game, 
 																																																			  BATCH_SIZE,
 																																																			  batch, 
 																																																			  builder.policy, 
 																																																			  forbidder.policy, 
 																																																			  action_noise,
-																																																			  device)
+																																																			  cpu)
+		
+		builder.policy.to(device)
+		forbidder.policy.to(device)
+		
 		print(f"Collecting batch took {time.time() - start_collect} secs")
 		
 		start_backprop = time.time()
@@ -76,7 +84,11 @@ def main():
 			print(key, value)
 
 		start_eval = time.time()
-		eval_stats = evaluate(game, batch, builder.policy, forbidder.policy, device)
+		builder.policy.to(cpu)
+		forbidder.policy.to(cpu)
+		eval_stats = evaluate(game, batch, builder.policy, forbidder.policy, cpu)
+		builder.policy.to(device)
+		forbidder.policy.to(device)
 		print(f"Eval took : {time.time() - start_eval} secs")
 
 		print(f"Eval Statistics:")

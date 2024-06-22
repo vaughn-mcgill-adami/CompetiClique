@@ -1,6 +1,3 @@
 TODO:
 use (randomized) dynamic programming for pretraining
 try a newer agent like for example PPO
-make everything modular/OOP
-
-actually understand python scoping rules

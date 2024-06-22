@@ -17,8 +17,6 @@ def vertex_list_to_action_tensor(vertices):
 
 class CompetiClique():
 	def __init__(self, changable = True, width = 2):
-		self.changable = changable
-		
 		self.rng = np.random.default_rng()
 		
 		self.too_many_vertices_penalty = -2
