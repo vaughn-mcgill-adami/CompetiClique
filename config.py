@@ -21,7 +21,7 @@ MAX_EDGES_PER_BUILDER_TURN = 3
 MAX_VERTICES_PER_FORBIDDER_TURN = 3
 
 #Model Parameters.
-LAYERS = 6
+LAYERS = 3
 HEADS = 6
 EMBEDDING_DIM = 96
 MLP_DIM = 128
@@ -47,11 +47,11 @@ CRITIC_ARCH_ARGS = {"L" : LAYERS,
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERLOADPATH = "builder_agent.pt"
-FORBIDDERLOADPATH = "forbidder_agent.pt"
+BUILDERLOADPATH = "5_builder_agent.pt"
+FORBIDDERLOADPATH = "5_forbidder_agent.pt"
 
-BUILDERSAVEPATH = "builder_agent.pt"
-FORBIDDERSAVEPATH = "forbidder_agent.pt"
+BUILDERSAVEPATH = "models/6_builder_agent.pt"
+FORBIDDERSAVEPATH = "models/6_forbidder_agent.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"

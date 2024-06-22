@@ -95,7 +95,7 @@ class ActorCriticAgent():
 			self.policy_optimizer.load_state_dict(agent_state['policy_optimizer_state_dict'])
 			self.critic_optimizer.load_state_dict(agent_state['critic_optimizer_state_dict'])
 				
-	def values(self, batch_observations, no_grad = True):
+	def values(self, in_batch_observations, no_grad = True):
 
 		#batch   obs.shape = num_traj, jagged_traj_len, personal_max_observation_len
 		#		    		 deque     tensor
@@ -105,6 +105,7 @@ class ActorCriticAgent():
 
 		# might want to test with/without padding, see what happens.
 		# does it impact performance?
+		batch_observations = in_batch_observations
 		assert len(batch_observations) > 0
 		
 		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
@@ -121,6 +122,8 @@ class ActorCriticAgent():
 		batch_observations = batch_observations.reshape((-1, max_obs_len))
 		#print(batch_observations.shape)
 		
+		print("in values : batch_observations.requires_grad = ", batch_observations.requires_grad)
+
 		if no_grad:
 			with torch.no_grad():
 				value = self.critic(batch_observations).reshape(-1, max_traj_len, max_obs_len)
@@ -137,20 +140,18 @@ class ActorCriticAgent():
 		zeromask = torch.tensor([[(batch_observations[traj][obs] == PAD_TOKEN).all() for obs in range(batch_observations.shape[1]) ]for traj in range(batch_observations.shape[0])])
 		value = torch.masked_fill(value, zeromask, value=0)
 		#print('after overwriting padding:', value)
-		#print(value.shape)
+		print("in values : value.requires_grad = ", value.requires_grad)
 		return value
 
-	def update_policy(self, batch_observations, batch_actions, batch_returns, batch_stats, actions_per_turn):
-		batch_actions = pad_jagged_batch(batch_actions, 1.0, self.device)
-		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
+	def update_policy(self, in_batch_observations, in_batch_actions, in_batch_returns, batch_stats, in_actions_per_turn):
+		batch_actions = pad_jagged_batch(in_batch_actions, 1.0, self.device)
+		batch_returns =	pad_jagged_batch(in_batch_returns, 0.0, self.device)
 		
-		value = self.values(batch_observations)
-		
-		#print(value.shape)
-		#print(batch_returns.shape)
-		#print(batch_actions.shape)
+		value = self.values(in_batch_observations)
 		
 		batch_returns = batch_returns - value
+
+		print("in update_policy : batch_returns.requires_grad = ", batch_returns.requires_grad)
 
 		loss_per_trajectory = (torch.log(batch_actions)*batch_returns).sum(dim=-1)
 		loss = -torch.mean(loss_per_trajectory)
@@ -163,11 +164,15 @@ class ActorCriticAgent():
 		batch_stats[f'average_{self.player_name}_return'] = torch.mean(batch_returns[:,0]).cpu().item()
 		batch_stats[f'{self.player_name}_policy_loss'] = loss.cpu().item()
 
+		del loss
+		del loss_per_trajectory
 	
-	def update_critic(self, batch_observations, batch_returns, batch_stats, actions_per_turn):
-		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
+	def update_critic(self, in_batch_observations, in_batch_returns, batch_stats, in_actions_per_turn):
+		batch_returns =	pad_jagged_batch(in_batch_returns, 0.0, self.device)
+		print("in update_critic : batch_observations.requires_grad = ", any(observations.requires_grad for observations in in_batch_observations))
+		print("in update_critic : batch_returns.requires_grad = ", batch_returns.requires_grad)
 		
-		value = self.values(batch_observations, no_grad=False)
+		value = self.values(in_batch_observations, no_grad=False)
 		
 		loss = torch.mean(torch.pow(value - batch_returns, 2)) #quadratic loss, for simplicity r.n.
 
@@ -176,7 +181,10 @@ class ActorCriticAgent():
 		self.critic_optimizer.zero_grad()
 		
 		batch_stats[f'{self.player_name}_critic_loss'] = loss.cpu().item()
-		
+
+		del loss
+
+	"""
 	def pretrain_policies(self, batch_observations, batch_actions, batch_stats):
 		#I don't think this works...
 		batch = [torch.cat((observation, action)) for observation, action in zip(batch_observations, batch_actions)]
@@ -192,7 +200,7 @@ class ActorCriticAgent():
 		loss.backward()
 		self.policy_optimizer.step()
 		self.policy_optimizer.zero_grad()
-
+	"""
 	def checkpoint(self, path, training_stats):
 		torch.save({
 			"policy_state_dict" : self.policy.state_dict(),

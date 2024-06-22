@@ -279,7 +279,7 @@ def evaluate(game, batch, builder_policy, forbidder_policy, device):
 		builder_policy.eval()
 		forbidder_policy.eval()
 		action_noise = Deterministic(N_TOKENS, device)
-		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, device)
+		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, batch_builder_actions_per_turn, batch_forbidder_actions_per_turn = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, device)
 	builder_policy.train()
 	forbidder_policy.train()
 

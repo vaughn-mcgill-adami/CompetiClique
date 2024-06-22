@@ -2,3 +2,5 @@
 *.pt
 #Ignore pycache
 __pycache__
+#ignore logs
+*.log
