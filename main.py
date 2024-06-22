@@ -53,21 +53,21 @@ def main():
 		action_noise = Deterministic(size=N_TOKENS,device = device)
 
 		start_collect = time.time()
-		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
-																																					BATCH_SIZE,
-																																					batch, 
-																																					builder.policy, 
-																																					forbidder.policy, 
-																																					action_noise,
-																																					device)
+		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, builder_actions_per_turn, forbidder_actions_per_turn = collect_batch_of_trajectories(game, 
+																																																			  BATCH_SIZE,
+																																																			  batch, 
+																																																			  builder.policy, 
+																																																			  forbidder.policy, 
+																																																			  action_noise,
+																																																			  device)
 		print(f"Collecting batch took {time.time() - start_collect} secs")
 		
 		start_backprop = time.time()
 		
-		batch_builder_returns = builder.update_policy(batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_stats, game)
-		builder.update_critic(batch_builder_observations, batch_builder_returns, batch_stats, game)
-		batch_forbidder_returns = forbidder.update_policy(batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, game)
-		forbidder.update_critic(batch_forbidder_observations, batch_forbidder_returns, batch_stats, game)
+		builder.update_policy(batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_stats, builder_actions_per_turn)
+		builder.update_critic(batch_builder_observations, batch_builder_returns, batch_stats, builder_actions_per_turn)
+		forbidder.update_policy(batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, forbidder_actions_per_turn)
+		forbidder.update_critic(batch_forbidder_observations, batch_forbidder_returns, batch_stats, forbidder_actions_per_turn)
 
 		print(f"Backpropagation took: {time.time() - start_backprop} secs")
 

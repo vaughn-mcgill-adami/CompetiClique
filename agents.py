@@ -95,10 +95,10 @@ class ActorCriticAgent():
 			self.policy_optimizer.load_state_dict(agent_state['policy_optimizer_state_dict'])
 			self.critic_optimizer.load_state_dict(agent_state['critic_optimizer_state_dict'])
 				
-	def values(self, batch_observations, actions_per_turn, no_grad = True):
+	def values(self, batch_observations, no_grad = True):
 
-		#batch   obs.shape = num_traj, jagged_traj_len, jagged_observation_len
-		#		    		 deque     deque            tensor
+		#batch   obs.shape = num_traj, jagged_traj_len, personal_max_observation_len
+		#		    		 deque     tensor
 
 		#desire: values.shape = num_traj, max_traj_len
 		#						tensor
@@ -107,43 +107,50 @@ class ActorCriticAgent():
 		# does it impact performance?
 		assert len(batch_observations) > 0
 		
-		end_of_obs = pad_jagged_batch([torch.tensor([len(obs) - 1 for obs in traj]) for traj in batch_observations], -1, self.device)
-		
 		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
-		end_of_obs = end_of_obs[:,:,None]
 		
 		batch_observations = [pad_jagged_batch(trajectory, PAD_TOKEN, self.device, pad_to=max_obs_len) for trajectory in batch_observations]
 		batch_observations = pad_jagged_batch(batch_observations, PAD_TOKEN, self.device, dim=-2)
 		
 		max_obs_len = batch_observations.shape[-1]
 		max_traj_len = batch_observations.shape[-2]
-
-		batch_observations = batch_observations.reshape((-1, max_obs_len))
 		
-		mask = end_of_obs == torch.arange(max_obs_len)
+		mask = batch_observations == torch.tensor(END_OBSERVATION_TOKEN).to(self.device)
+		
+		#print(batch_observations.shape)
+		batch_observations = batch_observations.reshape((-1, max_obs_len))
+		#print(batch_observations.shape)
 		
 		if no_grad:
 			with torch.no_grad():
 				value = self.critic(batch_observations).reshape(-1, max_traj_len, max_obs_len)
 		else:
 			value = self.critic(batch_observations).reshape(-1, max_traj_len, max_obs_len)
-			
+
+		
 		indices = torch.masked_fill(torch.cumsum(mask.int(), dim=-1), ~mask, value=0)
 		value = torch.scatter(input=torch.zeros_like(value), dim=-1, index=indices, src=value)[...,1]
-		value.unsqueeze(dim=-1)
-		value = value.repeat_interleave(actions_per_turn, dim=-1)
-
-		print(value[0])
-
+		#print('after value:', value.shape)
+		batch_observations = batch_observations.reshape(-1, max_traj_len, max_obs_len)
+		#print('batch_observations:', batch_observations.shape)
+		#0 value for padding observations so we don't learn anything from them.
+		zeromask = torch.tensor([[(batch_observations[traj][obs] == PAD_TOKEN).all() for obs in range(batch_observations.shape[1]) ]for traj in range(batch_observations.shape[0])])
+		value = torch.masked_fill(value, zeromask, value=0)
+		#print('after overwriting padding:', value)
+		#print(value.shape)
 		return value
 
-	def update_policy(self, batch_observations, batch_actions, batch_returns, batch_stats, game):
+	def update_policy(self, batch_observations, batch_actions, batch_returns, batch_stats, actions_per_turn):
 		batch_actions = pad_jagged_batch(batch_actions, 1.0, self.device)
 		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
 		
-		values = self.values(batch_observations, 2*game.M if self.player_name == "builder" else game.N if self.player_name == "forbidder" else None)
+		value = self.values(batch_observations)
 		
-		batch_returns = batch_returns - values
+		#print(value.shape)
+		#print(batch_returns.shape)
+		#print(batch_actions.shape)
+		
+		batch_returns = batch_returns - value
 
 		loss_per_trajectory = (torch.log(batch_actions)*batch_returns).sum(dim=-1)
 		loss = -torch.mean(loss_per_trajectory)
@@ -156,13 +163,13 @@ class ActorCriticAgent():
 		batch_stats[f'average_{self.player_name}_return'] = torch.mean(batch_returns[:,0]).cpu().item()
 		batch_stats[f'{self.player_name}_policy_loss'] = loss.cpu().item()
 
-		return batch_returns
 	
-	def update_critic(self, batch_observations, batch_returns, batch_stats, game):
+	def update_critic(self, batch_observations, batch_returns, batch_stats, actions_per_turn):
 		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
 		
-		values = self.values(batch_observations, no_grad=False, actions_per_turn=2*game.M if self.player_name == "builder" else game.N if self.player_name == "forbidder" else None)
-		loss = torch.mean(torch.pow(values - batch_returns, 2)) #quadratic loss, for simplicity r.n.
+		value = self.values(batch_observations, no_grad=False)
+		
+		loss = torch.mean(torch.pow(value - batch_returns, 2)) #quadratic loss, for simplicity r.n.
 
 		loss.backward()
 		self.critic_optimizer.step()

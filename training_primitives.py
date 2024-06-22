@@ -20,6 +20,21 @@ class Deterministic():
 		return
 	def sample(self):
 		return self.zeros
+	
+def pad_jagged_batch(batch, pad, device=torch.device(DEVICE), pad_to=None, dim=-1):
+	if len(batch) > 0:
+		longest_trajectory_len = max(trajectory.shape[0] for trajectory in batch) if pad_to is None else pad_to
+
+		pad_seq = []
+		for k in range(dim, -1, 1):
+			pad_seq = pad_seq + [0,0]
+
+		batch = list(F.pad(trajectory, pad=pad_seq + [0, longest_trajectory_len - trajectory.shape[0]], value = pad) if len(trajectory) > 0 else torch.tensor([pad for k in range(longest_trajectory_len)]) for trajectory in batch)
+		batch = torch.stack(batch, dim = 0).to(device)
+		
+	else:
+		print('empty batch!')
+	return batch
 
 def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_turn):
 	assert len(observations) == len(actions_probs) == len(actions_chosen)== len(rewards)
@@ -33,6 +48,8 @@ def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_
 		actions_chosen = torch.cat(list(actions_chosen))
 		
 		actions = actions_probs[torch.arange(len(actions_probs)), actions_chosen]
+
+		observations = pad_jagged_batch(observations,pad=PAD_TOKEN).repeat_interleave(actions_per_turn, dim=-2)
 
 		return observations, actions, discounted_returns
 	else:
@@ -123,18 +140,20 @@ def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device,
 			winner = "nobody_wins"
 
 	if evalu:
-		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, graphs_each_turn
+		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, graphs_each_turn, 2*game.M, game.N
 	else:
-		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner
+		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, 2*game.M, game.N
 
 
 def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, action_noise, device, evalu = False):
 	batch_builder_observations = deque()
 	batch_builder_actions = deque()
 	batch_builder_returns = deque()
+	batch_builder_actions_per_turn = deque()
 	batch_forbidder_observations = deque()
 	batch_forbidder_actions = deque()
 	batch_forbidder_returns = deque()
+	batch_forbidder_actions_per_turn = deque()
 
 	batch_stats = {'average_game_length' : deque(),
 				   'max_game_length' : 0,
@@ -143,8 +162,13 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 				   'nobody_wins' : 0}
 	
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
-		builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
+		builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, builder_actions_per_turn, forbidder_actions_per_turn = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
 		
+		assert 2*game.M == builder_actions_per_turn
+		assert game.N == forbidder_actions_per_turn
+		
+		batch_builder_actions_per_turn.append(builder_actions_per_turn)
+		batch_forbidder_actions_per_turn.append(forbidder_actions_per_turn)
 		#print(f'episode: {episode}')
 		#print(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, sep='\n')
 		
@@ -154,8 +178,8 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 
 		batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_number)
 		
-		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, 2*game.M)
-		forbidder_observations, forbidder_actions, forbidder_discounted_return = tensorify(forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, game.N)
+		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, builder_actions_per_turn)
+		forbidder_observations, forbidder_actions, forbidder_discounted_return = tensorify(forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, forbidder_actions_per_turn)
 		#print('after processing:')
 		#print(builder_observations, builder_actions, builder_rewards, forbidder_observations, forbidder_actions, forbidder_rewards, turn_number, winner, sep='\n')
 		#print()
@@ -170,7 +194,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 
 	batch_stats['average_game_length'] = sum(batch_stats['average_game_length'])/len(batch_stats['average_game_length'])
 	
-	return batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats
+	return batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, batch_builder_actions_per_turn, batch_forbidder_actions_per_turn
 
 
 def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
@@ -247,22 +271,6 @@ def collect_batch_of_brute_trajectories(game, batch_size, width, maxlookahead):
 	batch_stats['average_game_length'] = sum(batch_stats['average_game_length'])/len(batch_stats['average_game_length'])
 	
 	return builder_observations, builder_actions, forbidder_observations, forbidder_actions, batch_stats
-
-def pad_jagged_batch(batch, pad, device, pad_to=None, dim=-1):
-	if len(batch) > 0:
-
-		longest_trajectory_len = max(trajectory.shape[0] for trajectory in batch) if pad_to is None else pad_to
-
-		pad_seq = []
-		for k in range(dim, -1, 1):
-			pad_seq = pad_seq + [0,0]
-
-		batch = list(F.pad(trajectory, pad=pad_seq + [0, longest_trajectory_len - trajectory.shape[0]], value = pad) if len(trajectory) > 0 else torch.tensor([pad for k in range(longest_trajectory_len)]) for trajectory in batch)
-		batch = torch.stack(batch, dim = 0).to(device)
-		
-	else:
-		print('empty batch!')
-	return batch
 
 def evaluate(game, batch, builder_policy, forbidder_policy, device):
 	batch_stats = {}
