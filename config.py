@@ -26,19 +26,29 @@ HEADS = 6
 EMBEDDING_DIM = 96
 MLP_DIM = 128
 
-NN_ARCH_ARGS = {"L" : LAYERS, 
+POLICY_ARCH_ARGS = {"L" : LAYERS, 
                     "H" : HEADS, 
                     "d_e" : EMBEDDING_DIM, 
                     "d_mlp" : MLP_DIM, 
                     "n_tokens" : N_TOKENS, 
                     "n_positions" : POSITIONS,
+                    "n_out" : N_TOKENS
+                }
+
+CRITIC_ARCH_ARGS = {"L" : LAYERS, 
+                    "H" : HEADS, 
+                    "d_e" : EMBEDDING_DIM, 
+                    "d_mlp" : MLP_DIM, 
+                    "n_tokens" : N_TOKENS, 
+                    "n_positions" : POSITIONS,
+                    "n_out" : 1
                 }
 
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERLOADPATH = "builder_agent.pt"
-FORBIDDERLOADPATH = "forbidder_agent.pt"
+BUILDERLOADPATH = None
+FORBIDDERLOADPATH = None
 
 BUILDERSAVEPATH = "builder_agent.pt"
 FORBIDDERSAVEPATH = "forbidder_agent.pt"

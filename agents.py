@@ -29,8 +29,8 @@ class ActorCriticAgent():
 		if agent_file is not None:
 			self.load(agent_file)
 		else:
-			self.policy = SimpleDecoderTransformer(**policy_architecture_args, n_out = N_TOKENS)
-			self.critic = SimpleDecoderTransformer(**critic_architecture_args, n_out = 1, activation=nn.Identity())
+			self.policy = SimpleDecoderTransformer(**policy_architecture_args)
+			self.critic = SimpleDecoderTransformer(**critic_architecture_args, activation=nn.Identity())
 
 			self.policy_optimizer = optim.Adam(self.policy.parameters(), lr = policy_training_args['learning_rate'])
 			self.critic_optimizer = optim.Adam(self.critic.parameters(), lr = critic_training_args['learning_rate'])
@@ -49,9 +49,11 @@ class ActorCriticAgent():
 	def load(self, path):
 		agent_state = torch.load(path, map_location=self.device)
 		
-		old_policy_n_tokens = agent_state[f'{self.player_name}_policy_state_dict']['vertex_embedding.weight'].shape[0]
-		old_policy_n_positions = agent_state[f'{self.player_name}_policy_state_dict']['position_embedding.weight'].shape[0]
-		old_policy_n_out = agent_state[f'{self.player_name}_policy_state_dict']['final_linear.bias'].shape[0]
+		old_policy_n_tokens = agent_state['policy_state_dict']['vertex_embedding.weight'].shape[0]
+		old_policy_n_positions = agent_state['policy_state_dict']['position_embedding.weight'].shape[0]
+		old_policy_n_out = agent_state['policy_state_dict']['final_linear.bias'].shape[0]
+
+		self.action_noise = agent_state['action_noise']
 
 		self.policy = SimpleDecoderTransformer( L=LAYERS, 
 												H=HEADS, 
@@ -60,23 +62,39 @@ class ActorCriticAgent():
 												n_tokens=old_policy_n_tokens,
 												n_positions=old_policy_n_positions,
 												n_out=old_policy_n_out ).to(self.device)
+		
+		self.critic = SimpleDecoderTransformer( L=LAYERS, 
+												H=HEADS, 
+												d_e=EMBEDDING_DIM,
+												d_mlp=MLP_DIM,
+												n_tokens=old_policy_n_tokens,
+												n_positions=old_policy_n_positions,
+												n_out=1,
+												activation=nn.Identity()).to(self.device)
+		
 	
-		self.training_stats = agent_state['training_stats']
+		self.training_stats = agent_state['agent_training_stats']
 
-		self.policy.load_state_dict(agent_state[f'{self.player_name}_policy_state_dict'])
+		self.policy.load_state_dict(agent_state['policy_state_dict'])
 		
 		if self.policy_architecture_args is not None:
 			self.policy.update_embedding_sizes(self.policy_architecture_args['n_tokens'],
 										 	   self.policy_architecture_args['n_positions'],
 											   self.policy_architecture_args['n_out'])
+		if self.critic_architecture_args is not None:
+			self.critic.update_embedding_sizes(self.critic_architecture_args['n_tokens'],
+									  		   self.critic_architecture_args['n_positions'],
+											   1)
 
 		self.policy_optimizer = optim.Adam(self.policy.parameters(), lr = self.policy_training_args['learning_rate'])
+		self.critic_optimizer = optim.Adam(self.critic.parameters(), lr = self.critic_training_args['learning_rate'])
 
 		if self.policy_architecture_args['n_tokens'] == old_policy_n_tokens and \
 		   self.policy_architecture_args['n_positions'] == old_policy_n_positions and \
 		   self.policy_architecture_args['n_out'] == old_policy_n_out:
-			self.policy_optimizer.load_state_dict(agent_state[f'{self.player_name}_optimizer_state_dict'])
-	
+			self.policy_optimizer.load_state_dict(agent_state['policy_optimizer_state_dict'])
+			self.critic_optimizer.load_state_dict(agent_state['critic_optimizer_state_dict'])
+				
 	def values(self, batch_observations, actions_per_turn, no_grad = True):
 
 		#batch   obs.shape = num_traj, jagged_traj_len, jagged_observation_len
@@ -115,6 +133,8 @@ class ActorCriticAgent():
 		value.unsqueeze(dim=-1)
 		value = value.repeat_interleave(actions_per_turn, dim=-1)
 
+		print(value[0])
+
 		return value
 
 	def update_policy(self, batch_observations, batch_actions, batch_returns, batch_stats, game):
@@ -142,7 +162,7 @@ class ActorCriticAgent():
 		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
 		
 		values = self.values(batch_observations, no_grad=False, actions_per_turn=2*game.M if self.player_name == "builder" else game.N if self.player_name == "forbidder" else None)
-		loss = -torch.mean(torch.pow(values - batch_returns, 2)) #quadratic loss, for simplicity r.n.
+		loss = torch.mean(torch.pow(values - batch_returns, 2)) #quadratic loss, for simplicity r.n.
 
 		loss.backward()
 		self.critic_optimizer.step()

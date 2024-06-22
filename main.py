@@ -27,8 +27,8 @@ def main():
 	
 	builder = ActorCriticAgent(agent_file=BUILDERLOADPATH,
 							   player_name='builder',
-							   policy_architecture_args=NN_ARCH_ARGS,
-							   critic_architecture_args=NN_ARCH_ARGS,
+							   policy_architecture_args=POLICY_ARCH_ARGS,
+							   critic_architecture_args=CRITIC_ARCH_ARGS,
 							   policy_training_args=TRAINING_PARAMS,
 							   critic_training_args=TRAINING_PARAMS,
 							   action_noise=Deterministic(N_TOKENS, device),
@@ -36,15 +36,15 @@ def main():
 	
 	forbidder = ActorCriticAgent(agent_file=FORBIDDERLOADPATH,
 								 player_name='forbidder',
-							   	 policy_architecture_args=NN_ARCH_ARGS,
-							   	 critic_architecture_args=NN_ARCH_ARGS,
+							   	 policy_architecture_args=POLICY_ARCH_ARGS,
+							   	 critic_architecture_args=CRITIC_ARCH_ARGS,
 							   	 policy_training_args=TRAINING_PARAMS,
 								 critic_training_args=TRAINING_PARAMS,
 								 action_noise=Deterministic(N_TOKENS, device),
 							   	 device=device)
 	
 	training_stats = builder.training_stats
-    
+	
 	for batch in range(NUM_BATCHES):
 		builder.train()
 		forbidder.train()
@@ -61,9 +61,6 @@ def main():
 																																					action_noise,
 																																					device)
 		print(f"Collecting batch took {time.time() - start_collect} secs")
-		print(f"Batch {batch} (RL) Statistics:")
-		for key, value in batch_stats.items():
-			print(key, value)
 		
 		start_backprop = time.time()
 		
@@ -73,6 +70,10 @@ def main():
 		forbidder.update_critic(batch_forbidder_observations, batch_forbidder_returns, batch_stats, game)
 
 		print(f"Backpropagation took: {time.time() - start_backprop} secs")
+
+		print(f"Batch {batch} (RL) Statistics:")
+		for key, value in batch_stats.items():
+			print(key, value)
 
 		start_eval = time.time()
 		eval_stats = evaluate(game, batch, builder.policy, forbidder.policy, device)
