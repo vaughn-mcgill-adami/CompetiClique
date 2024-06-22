@@ -1,9 +1,8 @@
 from competiclique_the_game import CompetiClique
 from simple_decoder_transformer import SimpleDecoderTransformer#, set_batch_norm_momentum
 from config import *
-from training import *
-from agents import ActorCriticAgent, Deterministic
-
+from agents import ActorCriticAgent
+from training_primitives import *
 
 import time
 import argparse
@@ -26,29 +25,26 @@ def main():
 	
 	game = CompetiClique()
 	
-	builder = ActorCriticAgent(agent_file=BUILDERPOLICYOPTPATH,
+	builder = ActorCriticAgent(agent_file=BUILDERLOADPATH,
 							   player_name='builder',
 							   policy_architecture_args=NN_ARCH_ARGS,
-							   critic_architecture_args=None,
+							   critic_architecture_args=NN_ARCH_ARGS,
 							   policy_training_args=TRAINING_PARAMS,
-							   critic_training_args=None,
+							   critic_training_args=TRAINING_PARAMS,
 							   action_noise=Deterministic(N_TOKENS, device),
 							   device=device)
 	
-	forbidder = ActorCriticAgent(agent_file=FORBIDDERPOLICYOPTPATH,
+	forbidder = ActorCriticAgent(agent_file=FORBIDDERLOADPATH,
 								 player_name='forbidder',
 							   	 policy_architecture_args=NN_ARCH_ARGS,
-							   	 critic_architecture_args=None,
+							   	 critic_architecture_args=NN_ARCH_ARGS,
 							   	 policy_training_args=TRAINING_PARAMS,
-								 critic_training_args=None,
+								 critic_training_args=TRAINING_PARAMS,
 								 action_noise=Deterministic(N_TOKENS, device),
 							   	 device=device)
 	
 	training_stats = builder.training_stats
-
-	if BUILDERPOLICYOPTPATH is not None or FORBIDDERPOLICYOPTPATH is not None:
-		print(f'WARNING: training will overwrite existing weights of {'builder'}')
-	
+    
 	for batch in range(NUM_BATCHES):
 		builder.train()
 		forbidder.train()
@@ -57,7 +53,7 @@ def main():
 		action_noise = Deterministic(size=N_TOKENS,device = device)
 
 		start_collect = time.time()
-		batch_builder_actions, batch_builder_returns, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
+		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats = collect_batch_of_trajectories(game, 
 																																					BATCH_SIZE,
 																																					batch, 
 																																					builder.policy, 
@@ -70,14 +66,12 @@ def main():
 			print(key, value)
 		
 		start_backprop = time.time()
-		update_policies(builder.policy_optimizer, 
-						forbidder.policy_optimizer, 
-						batch_builder_actions, 
-						batch_forbidder_actions, 
-						batch_builder_returns, 
-						batch_forbidder_returns, 
-						device, 
-						batch_stats)
+		
+		batch_builder_returns = builder.update_policy(batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_stats, game)
+		builder.update_critic(batch_builder_observations, batch_builder_returns, batch_stats, game)
+		batch_forbidder_returns = forbidder.update_policy(batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, game)
+		forbidder.update_critic(batch_forbidder_observations, batch_forbidder_returns, batch_stats, game)
+
 		print(f"Backpropagation took: {time.time() - start_backprop} secs")
 
 		start_eval = time.time()
@@ -90,8 +84,8 @@ def main():
 		
 		training_stats.append((batch_stats, eval_stats))
 		
-		builder.checkpoint(BUILDERPOLICYOPTPATH, training_stats)
-		forbidder.checkpoint(FORBIDDERPOLICYOPTPATH, training_stats)
+		builder.checkpoint(BUILDERSAVEPATH, training_stats)
+		forbidder.checkpoint(FORBIDDERSAVEPATH, training_stats)
 
 		print()
 		print()

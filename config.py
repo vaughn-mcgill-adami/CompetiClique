@@ -10,7 +10,7 @@ VERTEX_VOCAB_STARTS_AT = 5
 N_TOKENS = VERTEX_VOCABULARY = 10
 POSITIONS = 2*N_TOKENS*(N_TOKENS-1)
 N_TOKENS = N_TOKENS + VERTEX_VOCAB_STARTS_AT
-N_OUT = N_TOKENS
+#N_OUT = N_TOKENS
 
 MIN_CLIQUE_SIZE = 3
 MIN_EDGES_PER_BUILDER_TURN = 1
@@ -32,13 +32,16 @@ NN_ARCH_ARGS = {"L" : LAYERS,
                     "d_mlp" : MLP_DIM, 
                     "n_tokens" : N_TOKENS, 
                     "n_positions" : POSITIONS,
-                    "n_out" : N_TOKENS}
+                }
 
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERPOLICYOPTPATH = None#"builder_policy_opt.pt"
-FORBIDDERPOLICYOPTPATH = None#"forbidder_policy_opt.pt"
+BUILDERLOADPATH = "builder_agent.pt"
+FORBIDDERLOADPATH = "forbidder_agent.pt"
+
+BUILDERSAVEPATH = "builder_agent.pt"
+FORBIDDERSAVEPATH = "forbidder_agent.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
@@ -49,7 +52,7 @@ DEVICE = 'cpu'
 EVAL_ONLY = False #not sure if this is even used anywhere.
 
 NUM_BATCHES = 1000
-BATCH_SIZE = 500
+BATCH_SIZE = 1000
 LEARNING_RATE = 0.00025
 
 #RL specific parameters

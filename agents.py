@@ -1,9 +1,11 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch import optim
 
 from simple_decoder_transformer import SimpleDecoderTransformer
 from config import *
+from training_primitives import *
 
 class ActorCriticAgent():
 	def __init__(self, agent_file = None,
@@ -27,16 +29,16 @@ class ActorCriticAgent():
 		if agent_file is not None:
 			self.load(agent_file)
 		else:
-			self.policy = SimpleDecoderTransformer(**policy_architecture_args)
-			#self.critic = SimpleDecoderTransformer(**critic_architecture_args, n_out = 1, activation=nn.Identity)
+			self.policy = SimpleDecoderTransformer(**policy_architecture_args, n_out = N_TOKENS)
+			self.critic = SimpleDecoderTransformer(**critic_architecture_args, n_out = 1, activation=nn.Identity())
 
 			self.policy_optimizer = optim.Adam(self.policy.parameters(), lr = policy_training_args['learning_rate'])
-			#self.critic_optimizer = optim.Adam(self.critic.parameters(), lr = critic_training_args['learning_rate'])
+			self.critic_optimizer = optim.Adam(self.critic.parameters(), lr = critic_training_args['learning_rate'])
 			
 			self.device = device
 
 			self.policy.to(device)
-			#self.critic.to(device)
+			self.critic.to(device)
 			
 			self.action_noise = action_noise
 		
@@ -46,8 +48,6 @@ class ActorCriticAgent():
 
 	def load(self, path):
 		agent_state = torch.load(path, map_location=self.device)
-
-		print(agent_state.keys())
 		
 		old_policy_n_tokens = agent_state[f'{self.player_name}_policy_state_dict']['vertex_embedding.weight'].shape[0]
 		old_policy_n_positions = agent_state[f'{self.player_name}_policy_state_dict']['position_embedding.weight'].shape[0]
@@ -77,6 +77,95 @@ class ActorCriticAgent():
 		   self.policy_architecture_args['n_out'] == old_policy_n_out:
 			self.policy_optimizer.load_state_dict(agent_state[f'{self.player_name}_optimizer_state_dict'])
 	
+	def values(self, batch_observations, actions_per_turn, no_grad = True):
+
+		#batch   obs.shape = num_traj, jagged_traj_len, jagged_observation_len
+		#		    		 deque     deque            tensor
+
+		#desire: values.shape = num_traj, max_traj_len
+		#						tensor
+
+		# might want to test with/without padding, see what happens.
+		# does it impact performance?
+		assert len(batch_observations) > 0
+		
+		end_of_obs = pad_jagged_batch([torch.tensor([len(obs) - 1 for obs in traj]) for traj in batch_observations], -1, self.device)
+		
+		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
+		end_of_obs = end_of_obs[:,:,None]
+		
+		batch_observations = [pad_jagged_batch(trajectory, PAD_TOKEN, self.device, pad_to=max_obs_len) for trajectory in batch_observations]
+		batch_observations = pad_jagged_batch(batch_observations, PAD_TOKEN, self.device, dim=-2)
+		
+		max_obs_len = batch_observations.shape[-1]
+		max_traj_len = batch_observations.shape[-2]
+
+		batch_observations = batch_observations.reshape((-1, max_obs_len))
+		
+		mask = end_of_obs == torch.arange(max_obs_len)
+		
+		if no_grad:
+			with torch.no_grad():
+				value = self.critic(batch_observations).reshape(-1, max_traj_len, max_obs_len)
+		else:
+			value = self.critic(batch_observations).reshape(-1, max_traj_len, max_obs_len)
+			
+		indices = torch.masked_fill(torch.cumsum(mask.int(), dim=-1), ~mask, value=0)
+		value = torch.scatter(input=torch.zeros_like(value), dim=-1, index=indices, src=value)[...,1]
+		value.unsqueeze(dim=-1)
+		value = value.repeat_interleave(actions_per_turn, dim=-1)
+
+		return value
+
+	def update_policy(self, batch_observations, batch_actions, batch_returns, batch_stats, game):
+		batch_actions = pad_jagged_batch(batch_actions, 1.0, self.device)
+		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
+		
+		values = self.values(batch_observations, 2*game.M if self.player_name == "builder" else game.N if self.player_name == "forbidder" else None)
+		
+		batch_returns = batch_returns - values
+
+		loss_per_trajectory = (torch.log(batch_actions)*batch_returns).sum(dim=-1)
+		loss = -torch.mean(loss_per_trajectory)
+
+		loss.backward()
+		self.policy_optimizer.step()
+		self.policy_optimizer.zero_grad()
+
+		#logging
+		batch_stats[f'average_{self.player_name}_return'] = torch.mean(batch_returns[:,0]).cpu().item()
+		batch_stats[f'{self.player_name}_policy_loss'] = loss.cpu().item()
+
+		return batch_returns
+	
+	def update_critic(self, batch_observations, batch_returns, batch_stats, game):
+		batch_returns =	pad_jagged_batch(batch_returns, 0.0, self.device)
+		
+		values = self.values(batch_observations, no_grad=False, actions_per_turn=2*game.M if self.player_name == "builder" else game.N if self.player_name == "forbidder" else None)
+		loss = -torch.mean(torch.pow(values - batch_returns, 2)) #quadratic loss, for simplicity r.n.
+
+		loss.backward()
+		self.critic_optimizer.step()
+		self.critic_optimizer.zero_grad()
+		
+		batch_stats[f'{self.player_name}_critic_loss'] = loss.cpu().item()
+		
+	def pretrain_policies(self, batch_observations, batch_actions, batch_stats):
+		#I don't think this works...
+		batch = [torch.cat((observation, action)) for observation, action in zip(batch_observations, batch_actions)]
+		batch = pad_jagged_batch(batch, PAD_TOKEN).to(self.device)
+		
+		assert len(batch) != 0
+		X = batch[...,:-1,:]
+		Y = batch[...,1:,:]
+
+		indices = torch.arange(N_TOKENS).to(self.device)[None, None, :] == Y[:, :, None]
+		loss = -torch.mean(torch.log(self.policy(X)[indices]))
+
+		loss.backward()
+		self.policy_optimizer.step()
+		self.policy_optimizer.zero_grad()
+
 	def checkpoint(self, path, training_stats):
 		torch.save({
 			"policy_state_dict" : self.policy.state_dict(),
@@ -91,146 +180,8 @@ class ActorCriticAgent():
 		
 	def train(self):
 		self.policy.train()
-		#self.critic.train()
+		self.critic.train()
 		
 	def eval(self):
 		self.policy.eval()
-		#self.critic.eval()
-
-		
-class Deterministic():
-	"""
-	A dummy class that is used in place of a distribution over non-negative "noise vectors" of shape size
-	"""
-	def __init__(self, size, device):
-		self.size = size
-		self.zeros = torch.zeros(self.size).to(device)
-		return
-	def sample(self):
-		return self.zeros
-
-"""
-def load_training_history(device):
-	for path in [BUILDERPOLICYOPTPATH, FORBIDDERPOLICYOPTPATH]
-	builder_state = torch.load(BUILDERPOLICYOPTPATH, map_location=device)
-	forbidder_state = torch.load(FORBIDDERPOLICYOPTPATH, map_location=device)
-
-	training_stats = builder_state['training_stats']
-	
-	print('builder_policy_state_dict : ')
-	for name, val in builder_state['builder_policy_state_dict'].items():
-		print(name, val.shape)
-	print()
-
-	print('forbidder_policy_state_dict : ')
-	for name, val in forbidder_state['forbidder_policy_state_dict'].items():
-		print(name, val.shape)
-	print()
-
-	builder_old_n_tokens = builder_state['builder_policy_state_dict']['vertex_embedding.weight'].shape[0]
-	builder_old_n_positions = builder_state['builder_policy_state_dict']['position_embedding.weight'].shape[0]
-	builder_old_n_out = builder_state['builder_policy_state_dict']['final_linear.bias'].shape[0]
-
-	builder_policy = SimpleDecoderTransformer(L = LAYERS, 
-											 H=HEADS, 
-											 d_e=EMBEDDING_DIM,
-											 d_mlp=MLP_DIM,
-											 n_tokens=builder_old_n_tokens,
-											 n_positions=builder_old_n_positions,
-											 n_out=builder_old_n_out).to(device)
-
-	forbidder_old_n_tokens = forbidder_state['forbidder_policy_state_dict']['vertex_embedding.weight'].shape[0]
-	forbidder_old_n_positions = forbidder_state['forbidder_policy_state_dict']['position_embedding.weight'].shape[0]
-	forbidder_old_n_out = forbidder_state['forbidder_policy_state_dict']['final_linear.bias'].shape[0]
-
-	forbidder_policy = SimpleDecoderTransformer(L = LAYERS, 
-											 H=HEADS, 
-											 d_e=EMBEDDING_DIM,
-											 d_mlp=MLP_DIM,
-											 n_tokens=forbidder_old_n_tokens,
-											 n_positions=forbidder_old_n_positions,
-											 n_out=forbidder_old_n_out).to(device)
-
-	builder_policy.load_state_dict(builder_state['builder_policy_state_dict'])
-	print('loaded builder policy')
-	forbidder_policy.load_state_dict(forbidder_state['forbidder_policy_state_dict'])
-	print('loaded forbidder policy')
-
-	assert len(training_stats) != 0
-	print(len(training_stats))
-
-	best_so_far = {"builder" : float('-inf'), 
-				   "forbidder" : float('-inf')
-				  }
-
-	if not LOAD_PRETRAINED:
-		best_so_far = {"builder" : max(batch_stats['average_builder_return'] for batch_stats, eval_stats in training_stats),
-										"forbidder" : max(batch_stats['average_forbidder_return'] for batch_stats, eval_stats in training_stats)}
-		print('best builder average return :', best_so_far['builder'])
-		print('best forbidder average return :', best_so_far['forbidder'])
-		print('second latest builder average return :', training_stats[len(training_stats) - 1][0]['average_builder_return'])
-		print('second latest forbidder average return :', training_stats[len(training_stats) - 1][0]['average_forbidder_return'])
-	
-	for policy in [builder_policy, forbidder_policy]:
-		policy.update_embedding_sizes(N_TOKENS, POSITIONS)
-
-	print('builder_policy_state_dict (2): ')
-	for name, val in builder_policy.named_parameters():
-		print(name, val.shape)
-	print()
-
-	print('forbidder_policy_state_dict (2): ')
-	for name, val in forbidder_policy.named_parameters():
-		print(name, val.shape)
-	print()
-	
-	print('building optimizers')
-	builder_optimizer = torch.optim.Adam(builder_policy.parameters(), lr=LEARNING_RATE)
-	forbidder_optimizer = torch.optim.Adam(forbidder_policy.parameters(), lr=LEARNING_RATE)
-	if builder_old_n_tokens == N_TOKENS and builder_old_n_positions == POSITIONS and builder_old_n_out == N_OUT:
-		builder_optimizer.load_state_dict(builder_state['builder_optimizer_state_dict'])
-	if forbidder_old_n_tokens == N_TOKENS and forbidder_old_n_positions == POSITIONS and forbidder_old_n_out == N_OUT:
-		forbidder_optimizer.load_state_dict(forbidder_state['forbidder_optimizer_state_dict'])
-	print('loaded optimizers')
-
-	return training_stats, best_so_far, builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer
-
-
-def checkpoint(builder_policy, forbidder_policy, builder_optimizer, forbidder_optimizer, training_stats, batch_stats, best_so_far):
-	torch.save(
-			{
-				'vertex_vocabulary' : VERTEX_VOCABULARY,
-				'training_stats' : training_stats,
-				'builder_policy_state_dict' : builder_policy.state_dict(),
-				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
-			}, BUILDERPOLICYOPTPATH
-		)
-	torch.save(
-			{
-				'vertex_vocabulary' : VERTEX_VOCABULARY,
-				'training_stats' : training_stats,
-				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
-				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
-			}, FORBIDDERPOLICYOPTPATH
-		)
-	if best_so_far['builder'] < batch_stats['average_builder_return']:
-		torch.save(
-			{
-				'vertex_vocabulary' : VERTEX_VOCABULARY,
-				'training_stats' : training_stats,
-				'builder_policy_state_dict' : builder_policy.state_dict(),
-				'builder_optimizer_state_dict' : builder_optimizer.state_dict(),
-			}, BESTBUILDERPOLICYOPTPATH
-		)
-		best_so_far['builder'] = batch_stats['average_builder_return']
-	if best_so_far['forbidder'] < batch_stats['average_forbidder_return']:
-		torch.save(
-			{
-				'vertex_vocabulary' : VERTEX_VOCABULARY,
-				'training_stats' : training_stats,
-				'forbidder_policy_state_dict' : forbidder_policy.state_dict(),
-				'forbidder_optimizer_state_dict' : forbidder_optimizer.state_dict(),
-			}, BESTFORBIDDERPOLICYOPTPATH
-		)
-		best_so_far['forbidder'] = batch_stats['average_forbidder_return']
-"""
+		self.critic.eval()
