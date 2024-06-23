@@ -9,13 +9,13 @@ from training_primitives import *
 
 class ActorCriticAgent():
 	def __init__(self, agent_file = None,
-			  		   player_name = None, 
-			  		   policy_architecture_args = None, 
-					   critic_architecture_args = None, 
-					   policy_training_args = None, 
-					   critic_training_args = None, 
-					   action_noise = None, 
-					   device = None):
+							 player_name = None, 
+							 policy_architecture_args = None, 
+						 critic_architecture_args = None, 
+						 policy_training_args = None, 
+						 critic_training_args = None, 
+						 action_noise = None, 
+						 device = None):
 		
 		self.player_name = player_name
 
@@ -39,12 +39,22 @@ class ActorCriticAgent():
 
 			self.policy.to(device)
 			self.critic.to(device)
+			self.policy.my_device = device
+			self.critic.my_device = device
 			
 			self.action_noise = action_noise
 		
 			self.player_name = player_name
 			
 			self.training_stats = []
+
+	def to(self, device):
+		if type(device) == str:
+			device = torch.device(device)
+		self.policy.to(device)
+		self.critic.to(device)
+		self.policy.my_device = device
+		self.critic.my_device = device
 
 	def load(self, path):
 		agent_state = torch.load(path, map_location=self.device)
@@ -62,7 +72,8 @@ class ActorCriticAgent():
 												n_tokens=old_policy_n_tokens,
 												n_positions=old_policy_n_positions,
 												n_out=old_policy_n_out ).to(self.device)
-		
+		self.policy.my_device = self.device
+
 		self.critic = SimpleDecoderTransformer( L=LAYERS, 
 												H=HEADS, 
 												d_e=EMBEDDING_DIM,
@@ -71,7 +82,7 @@ class ActorCriticAgent():
 												n_positions=old_policy_n_positions,
 												n_out=1,
 												activation=nn.Identity()).to(self.device)
-		
+		self.critic.my_device = self.device
 	
 		self.training_stats = agent_state['agent_training_stats']
 
@@ -79,23 +90,23 @@ class ActorCriticAgent():
 		
 		if self.policy_architecture_args is not None:
 			self.policy.update_embedding_sizes(self.policy_architecture_args['n_tokens'],
-										 	   self.policy_architecture_args['n_positions'],
-											   self.policy_architecture_args['n_out'])
+										 		 self.policy_architecture_args['n_positions'],
+												 self.policy_architecture_args['n_out'])
 		if self.critic_architecture_args is not None:
 			self.critic.update_embedding_sizes(self.critic_architecture_args['n_tokens'],
-									  		   self.critic_architecture_args['n_positions'],
-											   1)
+													 self.critic_architecture_args['n_positions'],
+												 1)
 
 		self.policy_optimizer = optim.Adam(self.policy.parameters(), lr = self.policy_training_args['learning_rate'])
 		self.critic_optimizer = optim.Adam(self.critic.parameters(), lr = self.critic_training_args['learning_rate'])
 
 		if self.policy_architecture_args['n_tokens'] == old_policy_n_tokens and \
-		   self.policy_architecture_args['n_positions'] == old_policy_n_positions and \
-		   self.policy_architecture_args['n_out'] == old_policy_n_out:
+			 self.policy_architecture_args['n_positions'] == old_policy_n_positions and \
+			 self.policy_architecture_args['n_out'] == old_policy_n_out:
 			self.policy_optimizer.load_state_dict(agent_state['policy_optimizer_state_dict'])
 			self.critic_optimizer.load_state_dict(agent_state['critic_optimizer_state_dict'])
 				
-	def values(self, in_batch_observations, no_grad = True):
+	def values(self, batch_observations, no_grad = True):
 
 		#batch   obs.shape = num_traj, jagged_traj_len, personal_max_observation_len
 		#		    		 deque     tensor
@@ -105,22 +116,13 @@ class ActorCriticAgent():
 
 		# might want to test with/without padding, see what happens.
 		# does it impact performance?
-		batch_observations = in_batch_observations
-		assert len(batch_observations) > 0
-		
-		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
-		
-		batch_observations = [pad_jagged_batch(trajectory, PAD_TOKEN, self.device, pad_to=max_obs_len) for trajectory in batch_observations]
-		batch_observations = pad_jagged_batch(batch_observations, PAD_TOKEN, self.device, dim=-2)
 		
 		max_obs_len = batch_observations.shape[-1]
 		max_traj_len = batch_observations.shape[-2]
 		
 		mask = batch_observations == torch.tensor(END_OBSERVATION_TOKEN).to(self.device)
 		
-		#print(batch_observations.shape)
 		batch_observations = batch_observations.reshape((-1, max_obs_len))
-		#print(batch_observations.shape)
 		
 		print("in values : batch_observations.requires_grad = ", batch_observations.requires_grad)
 
@@ -137,21 +139,26 @@ class ActorCriticAgent():
 		batch_observations = batch_observations.reshape(-1, max_traj_len, max_obs_len)
 		#print('batch_observations:', batch_observations.shape)
 		#0 value for padding observations so we don't learn anything from them.
-		zeromask = torch.tensor([[(batch_observations[traj][obs] == PAD_TOKEN).all() for obs in range(batch_observations.shape[1]) ]for traj in range(batch_observations.shape[0])])
+		zeromask = torch.tensor([[(batch_observations[traj][obs] == PAD_TOKEN).all() for obs in range(batch_observations.shape[1]) ]for traj in range(batch_observations.shape[0])]).to(self.device)
 		value = torch.masked_fill(value, zeromask, value=0)
 		#print('after overwriting padding:', value)
 		print("in values : value.requires_grad = ", value.requires_grad)
 		return value
 
 	def update_policy(self, in_batch_observations, in_batch_actions, in_batch_returns, batch_stats, in_actions_per_turn):
+		batch_observations = in_batch_observations
+		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
+		batch_observations = [pad_jagged_batch(trajectory, PAD_TOKEN, self.device, pad_to=max_obs_len) for trajectory in batch_observations]
+		batch_observations = pad_jagged_batch(batch_observations, PAD_TOKEN, self.device, dim=-2)
+		
 		batch_actions = pad_jagged_batch(in_batch_actions, 1.0, self.device)
 		batch_returns =	pad_jagged_batch(in_batch_returns, 0.0, self.device)
 		
-		value = self.values(in_batch_observations)
+		value = self.values(batch_observations)
 		
 		batch_returns = batch_returns - value
 
-		print("in update_policy : batch_returns.requires_grad = ", batch_returns.requires_grad)
+		#print("in update_policy : batch_returns.requires_grad = ", batch_returns.requires_grad)
 
 		loss_per_trajectory = (torch.log(batch_actions)*batch_returns).sum(dim=-1)
 		loss = -torch.mean(loss_per_trajectory)
@@ -168,11 +175,13 @@ class ActorCriticAgent():
 		del loss_per_trajectory
 	
 	def update_critic(self, in_batch_observations, in_batch_returns, batch_stats, in_actions_per_turn):
-		batch_returns =	pad_jagged_batch(in_batch_returns, 0.0, self.device)
-		print("in update_critic : batch_observations.requires_grad = ", any(observations.requires_grad for observations in in_batch_observations))
-		print("in update_critic : batch_returns.requires_grad = ", batch_returns.requires_grad)
+		batch_observations = in_batch_observations
+		max_obs_len = max(len(obs) for trajectory in batch_observations for obs in trajectory)
+		batch_observations = [pad_jagged_batch(trajectory, PAD_TOKEN, self.device, pad_to=max_obs_len) for trajectory in batch_observations]
+		batch_observations = pad_jagged_batch(batch_observations, PAD_TOKEN, self.device, dim=-2)
+		value = self.values(batch_observations, no_grad=False)
 		
-		value = self.values(in_batch_observations, no_grad=False)
+		batch_returns =	pad_jagged_batch(in_batch_returns, 0.0, self.device)
 		
 		loss = torch.mean(torch.pow(value - batch_returns, 2)) #quadratic loss, for simplicity r.n.
 

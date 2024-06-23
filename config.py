@@ -47,11 +47,11 @@ CRITIC_ARCH_ARGS = {"L" : LAYERS,
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERLOADPATH = "5_builder_agent.pt"
-FORBIDDERLOADPATH = "5_forbidder_agent.pt"
+BUILDERLOADPATH = "models/8_builder_agent.pt"
+FORBIDDERLOADPATH = "models/8_forbidder_agent.pt"
 
-BUILDERSAVEPATH = "models/6_builder_agent.pt"
-FORBIDDERSAVEPATH = "models/6_forbidder_agent.pt"
+BUILDERSAVEPATH = "models/9_builder_agent.pt"
+FORBIDDERSAVEPATH = "models/9_forbidder_agent.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"

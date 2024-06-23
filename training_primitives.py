@@ -21,7 +21,7 @@ class Deterministic():
 	def sample(self):
 		return self.zeros
 	
-def pad_jagged_batch(batch, pad, device=torch.device(DEVICE), pad_to=None, dim=-1):
+def pad_jagged_batch(batch, pad, device, pad_to=None, dim=-1):
 	if len(batch) > 0:
 		longest_trajectory_len = max(trajectory.shape[0] for trajectory in batch) if pad_to is None else pad_to
 
@@ -36,7 +36,7 @@ def pad_jagged_batch(batch, pad, device=torch.device(DEVICE), pad_to=None, dim=-
 		print('empty batch!')
 	return batch
 
-def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_turn):
+def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_turn, device):
 	assert len(observations) == len(actions_probs) == len(actions_chosen)== len(rewards)
 	if len(rewards) != 0:
 		rewards = torch.tensor(list(rewards))
@@ -49,7 +49,7 @@ def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_
 		
 		actions = actions_probs[torch.arange(len(actions_probs)), actions_chosen]
 
-		observations = pad_jagged_batch(observations,pad=PAD_TOKEN).repeat_interleave(actions_per_turn, dim=-2)
+		observations = pad_jagged_batch(observations, pad=PAD_TOKEN, device=device).repeat_interleave(actions_per_turn, dim=-2)
 
 		return observations, actions, discounted_returns
 	else:
@@ -178,8 +178,8 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 
 		batch_stats['max_game_length'] = max(batch_stats['max_game_length'], turn_number)
 		
-		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, builder_actions_per_turn)
-		forbidder_observations, forbidder_actions, forbidder_discounted_return = tensorify(forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, forbidder_actions_per_turn)
+		builder_observations, builder_actions, builder_discounted_return = tensorify(builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, builder_actions_per_turn, device)
+		forbidder_observations, forbidder_actions, forbidder_discounted_return = tensorify(forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, forbidder_actions_per_turn, device)
 		#print('after processing:')
 		#print(builder_observations, builder_actions, builder_rewards, forbidder_observations, forbidder_actions, forbidder_rewards, turn_number, winner, sep='\n')
 		#print()

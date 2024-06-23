@@ -8,6 +8,7 @@ import time
 import argparse
 
 import torch
+from torch.nn import DataParallel # might not be supposed to use this
 
 def main():
 	parser = argparse.ArgumentParser()
@@ -27,22 +28,27 @@ def main():
 	game = CompetiClique()
 	
 	builder = ActorCriticAgent(agent_file=BUILDERLOADPATH,
-							   player_name='builder',
-							   policy_architecture_args=POLICY_ARCH_ARGS,
-							   critic_architecture_args=CRITIC_ARCH_ARGS,
-							   policy_training_args=TRAINING_PARAMS,
-							   critic_training_args=TRAINING_PARAMS,
-							   action_noise=Deterministic(N_TOKENS, device),
-							   device=device)
+								 player_name='builder',
+								 policy_architecture_args=POLICY_ARCH_ARGS,
+								 critic_architecture_args=CRITIC_ARCH_ARGS,
+								 policy_training_args=TRAINING_PARAMS,
+								 critic_training_args=TRAINING_PARAMS,
+								 action_noise=Deterministic(N_TOKENS, device),
+								 device=device)
 	
 	forbidder = ActorCriticAgent(agent_file=FORBIDDERLOADPATH,
 								 player_name='forbidder',
-							   	 policy_architecture_args=POLICY_ARCH_ARGS,
-							   	 critic_architecture_args=CRITIC_ARCH_ARGS,
-							   	 policy_training_args=TRAINING_PARAMS,
+								 	 policy_architecture_args=POLICY_ARCH_ARGS,
+								 	 critic_architecture_args=CRITIC_ARCH_ARGS,
+								 	 policy_training_args=TRAINING_PARAMS,
 								 critic_training_args=TRAINING_PARAMS,
 								 action_noise=Deterministic(N_TOKENS, device),
-							   	 device=device)
+								 	 device=device)
+	
+	#builder.policy = DataParallel(builder.policy)
+	#builder.critic = DataParallel(builder.critic)
+	#forbidder.policy = DataParallel(forbidder.policy)
+	#forbidder.critic = DataParallel(forbidder.critic)
 	
 	training_stats = builder.training_stats
 	
@@ -50,23 +56,23 @@ def main():
 		builder.train()
 		forbidder.train()
 		
-		
-		action_noise = Deterministic(size=N_TOKENS,device = device)
-
 		start_collect = time.time()
-		builder.policy.to(cpu)
-		forbidder.policy.to(cpu)
+
+		#builder.to(cpu)
+		#forbidder.to(cpu)
+
+		action_noise = Deterministic(size=N_TOKENS, device = device)
 
 		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, builder_actions_per_turn, forbidder_actions_per_turn = collect_batch_of_trajectories(game, 
-																																																			  BATCH_SIZE,
-																																																			  batch, 
-																																																			  builder.policy, 
-																																																			  forbidder.policy, 
-																																																			  action_noise,
-																																																			  cpu)
+																																																				BATCH_SIZE,
+																																																				batch, 
+																																																				builder.policy, 
+																																																				forbidder.policy, 
+																																																				action_noise,
+																																																				device)
 		
-		builder.policy.to(device)
-		forbidder.policy.to(device)
+		#builder.to(device)
+		#forbidder.to(device)
 		
 		print(f"Collecting batch took {time.time() - start_collect} secs")
 		
@@ -84,11 +90,11 @@ def main():
 			print(key, value)
 
 		start_eval = time.time()
-		builder.policy.to(cpu)
-		forbidder.policy.to(cpu)
-		eval_stats = evaluate(game, batch, builder.policy, forbidder.policy, cpu)
-		builder.policy.to(device)
-		forbidder.policy.to(device)
+		#builder.to(cpu)
+		#forbidder.to(cpu)
+		eval_stats = evaluate(game, batch, builder.policy, forbidder.policy, device)
+		#builder.to(device)
+		#forbidder.to(device)
 		print(f"Eval took : {time.time() - start_eval} secs")
 
 		print(f"Eval Statistics:")

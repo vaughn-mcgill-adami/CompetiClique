@@ -29,7 +29,7 @@ class SimpleDecoderTransformer(nn.Module):
 		self.final_linear = nn.Linear(d_e, n_out)
 		self.activation = activation
 
-		self.my_device = torch.device(DEVICE) #change this.
+		self.my_device = None# = torch.device(DEVICE) #change this.
 	
 	def update_embedding_sizes(self, vocab_size : int = 0, num_positions : int = 0, out_size : int = 0):
 		with torch.no_grad():

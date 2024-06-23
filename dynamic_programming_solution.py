@@ -214,7 +214,6 @@ def game_frames():
 		else:
 			return
 
-"""
 def game_worker():
 	global history
 	global animation_queue
@@ -248,5 +247,3 @@ def main():
 
 if __name__ == '__main__':
 	main()
-	
-"""
