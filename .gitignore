@@ -4,3 +4,5 @@
 __pycache__
 #ignore logs
 *.log
+#ignore scratch notebooks
+*.ipynb
