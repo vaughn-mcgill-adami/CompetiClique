@@ -1,4 +1,6 @@
 #Game Parameters.
+from torch import cuda
+
 AVAILABLE_TOKEN = 0
 FORBIDDEN_TOKEN = 1
 PAD_TOKEN = 2
@@ -16,12 +18,12 @@ MIN_CLIQUE_SIZE = 3
 MIN_EDGES_PER_BUILDER_TURN = 1
 MIN_VERTICES_PER_FORBIDDER_TURN = 1
 
-MAX_CLIQUE_SIZE = 3
-MAX_EDGES_PER_BUILDER_TURN = 3
+MAX_CLIQUE_SIZE = 4
+MAX_EDGES_PER_BUILDER_TURN = 5
 MAX_VERTICES_PER_FORBIDDER_TURN = 3
 
 #Model Parameters.
-LAYERS = 3
+LAYERS = 10
 HEADS = 6
 EMBEDDING_DIM = 96
 MLP_DIM = 128
@@ -47,23 +49,23 @@ CRITIC_ARCH_ARGS = {"L" : LAYERS,
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERLOADPATH = "models/8_builder_agent.pt"
-FORBIDDERLOADPATH = "models/8_forbidder_agent.pt"
+BUILDERLOADPATH = None#"models/L6_18_builder_agent_c4_m5_n3.pt"
+FORBIDDERLOADPATH = None#"models/L6_18_forbidder_agent_c4_m5_n3.pt"
 
-BUILDERSAVEPATH = "models/9_builder_agent.pt"
-FORBIDDERSAVEPATH = "models/9_forbidder_agent.pt"
+BUILDERSAVEPATH = "models/L6_0_builder_agent_c4_m5_n3.pt"
+FORBIDDERSAVEPATH = "models/L6_0_forbidder_agent_c4_m5_n3.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
 
 #Training Parameters
-DEVICE = 'cpu'
+DEVICE = 'cuda:0' if cuda.is_available() else 'cpu'
 
 EVAL_ONLY = False #not sure if this is even used anywhere.
 
 NUM_BATCHES = 1000
-BATCH_SIZE = 1000
-LEARNING_RATE = 0.00025
+BATCH_SIZE = 300
+LEARNING_RATE = 0.00003
 
 #RL specific parameters
 DISCOUNT_FACTOR = 0.9
@@ -76,4 +78,4 @@ WIDTH = 2
 MAXLOOKAHEAD = 16
 
 #Eval parameters
-NUM_EVAL_SAMPLES = 200
+NUM_EVAL_SAMPLES = 2

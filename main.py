@@ -89,6 +89,7 @@ def main():
 		for key, value in batch_stats.items():
 			print(key, value)
 
+    """
 		start_eval = time.time()
 		#builder.to(cpu)
 		#forbidder.to(cpu)
@@ -100,8 +101,8 @@ def main():
 		print(f"Eval Statistics:")
 		for key, value in eval_stats.items():
 			print(key, value)
-		
-		training_stats.append((batch_stats, eval_stats))
+		"""
+		training_stats.append((batch_stats, None))
 		
 		builder.checkpoint(BUILDERSAVEPATH, training_stats)
 		forbidder.checkpoint(FORBIDDERSAVEPATH, training_stats)

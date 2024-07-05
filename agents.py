@@ -124,7 +124,7 @@ class ActorCriticAgent():
 		
 		batch_observations = batch_observations.reshape((-1, max_obs_len))
 		
-		print("in values : batch_observations.requires_grad = ", batch_observations.requires_grad)
+		#print("in values : batch_observations.requires_grad = ", batch_observations.requires_grad)
 
 		if no_grad:
 			with torch.no_grad():
@@ -142,7 +142,7 @@ class ActorCriticAgent():
 		zeromask = torch.tensor([[(batch_observations[traj][obs] == PAD_TOKEN).all() for obs in range(batch_observations.shape[1]) ]for traj in range(batch_observations.shape[0])]).to(self.device)
 		value = torch.masked_fill(value, zeromask, value=0)
 		#print('after overwriting padding:', value)
-		print("in values : value.requires_grad = ", value.requires_grad)
+		#print("in values : value.requires_grad = ", value.requires_grad)
 		return value
 
 	def update_policy(self, in_batch_observations, in_batch_actions, in_batch_returns, batch_stats, in_actions_per_turn):
