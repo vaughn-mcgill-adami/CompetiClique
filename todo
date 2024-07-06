@@ -1,9 +1,11 @@
 TODO:
 use (randomized) dynamic programming for pretraining
 try a newer agent like for example PPO
-temperatures for decoder
+#temperatures for decoder
 make it encoder/decoder instead of decoder only because the structure of the input is so different
 use torch.cat instead of lots of deques
 maybe make more modular
+#scale updates to policy by reciprocal of the critic loss, so that the baseline is more certain?
+parallelize data collection
 
 make a ui

@@ -55,7 +55,7 @@ def tensorify(observations, actions_probs, actions_chosen, rewards, actions_per_
 	else:
 		return torch.tensor([]), torch.tensor([]), torch.tensor([])
 
-def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu=False):
+def run_trajectory(game, builder_policy, forbidder_policy, action_noise, temperature, device, evalu=False):
 	builder_observations = deque()
 	builder_actions_probs = deque()
 	builder_actions_chosen = deque()
@@ -86,7 +86,7 @@ def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device,
 				observation = observation.to(device)
 				action_probs = builder_policy(observation)[0][-1]
 
-				action_probs = action_probs + action_noise.sample()
+				action_probs = action_probs**(1/temperature)
 
 				action_chosen = Categorical(probs = action_probs).sample()
 				formatted_action_probs.append(action_probs)
@@ -145,7 +145,7 @@ def run_trajectory(game, builder_policy, forbidder_policy, action_noise, device,
 		return builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, 2*game.M, game.N
 
 
-def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, action_noise, device, evalu = False):
+def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy, forbidder_policy, action_noise, temperature, device, evalu = False):
 	batch_builder_observations = deque()
 	batch_builder_actions = deque()
 	batch_builder_returns = deque()
@@ -162,7 +162,7 @@ def collect_batch_of_trajectories(game, batch_size, batch : int, builder_policy,
 				   'nobody_wins' : 0}
 	
 	for episode in track(range(batch_size), description = f'Batch: {batch}/{NUM_BATCHES} : playing {batch_size} games : '):
-		builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, builder_actions_per_turn, forbidder_actions_per_turn = run_trajectory(game, builder_policy, forbidder_policy, action_noise, device, evalu = evalu)
+		builder_observations, builder_actions_probs, builder_actions_chosen, builder_rewards, forbidder_observations, forbidder_actions_probs, forbidder_actions_chosen, forbidder_rewards, turn_number, winner, builder_actions_per_turn, forbidder_actions_per_turn = run_trajectory(game, builder_policy, forbidder_policy, action_noise, temperature, device, evalu = evalu)
 		
 		assert 2*game.M == builder_actions_per_turn
 		assert game.N == forbidder_actions_per_turn
@@ -279,7 +279,7 @@ def evaluate(game, batch, builder_policy, forbidder_policy, device):
 		builder_policy.eval()
 		forbidder_policy.eval()
 		action_noise = Deterministic(N_TOKENS, device)
-		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, batch_builder_actions_per_turn, batch_forbidder_actions_per_turn = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, device)
+		batch_builder_observations, batch_builder_actions, batch_builder_returns, batch_forbidder_observations, batch_forbidder_actions, batch_forbidder_returns, batch_stats, batch_builder_actions_per_turn, batch_forbidder_actions_per_turn = collect_batch_of_trajectories(game, NUM_EVAL_SAMPLES, batch, builder_policy, forbidder_policy, action_noise, 1.0, device)
 	builder_policy.train()
 	forbidder_policy.train()
 

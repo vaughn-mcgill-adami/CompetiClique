@@ -49,11 +49,11 @@ CRITIC_ARCH_ARGS = {"L" : LAYERS,
 #Logging Parameters
 #BESTBUILDERPOLICYOPTPATH = #"best_builder_policy_opt.pt"
 #BESTFORBIDDERPOLICYOPTPATH = #"best_forbidder_policy_opt.pt"
-BUILDERLOADPATH = None#"models/L6_18_builder_agent_c4_m5_n3.pt"
-FORBIDDERLOADPATH = None#"models/L6_18_forbidder_agent_c4_m5_n3.pt"
+BUILDERLOADPATH = "models/L10_0_builder_agent_c4_m5_n3.pt"
+FORBIDDERLOADPATH = "models/L10_0_forbidder_agent_c4_m5_n3.pt"
 
-BUILDERSAVEPATH = "models/L6_0_builder_agent_c4_m5_n3.pt"
-FORBIDDERSAVEPATH = "models/L6_0_forbidder_agent_c4_m5_n3.pt"
+BUILDERSAVEPATH = "models/L10_0_builder_agent_c4_m5_n3.pt"
+FORBIDDERSAVEPATH = "models/L10_0_forbidder_agent_c4_m5_n3.pt"
 
 #SAVE_A_TRAJECTORY_PATH = "trajectory.pt"
 #SAVE_A_PRETRAIN_TRAJECTORY_PATH = "pretrain_trajectory.pt"
@@ -64,8 +64,8 @@ DEVICE = 'cuda:0' if cuda.is_available() else 'cpu'
 EVAL_ONLY = False #not sure if this is even used anywhere.
 
 NUM_BATCHES = 1000
-BATCH_SIZE = 300
-LEARNING_RATE = 0.00003
+BATCH_SIZE = 128
+LEARNING_RATE = 0.000128
 
 #RL specific parameters
 DISCOUNT_FACTOR = 0.9

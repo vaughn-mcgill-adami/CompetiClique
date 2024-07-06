@@ -48,6 +48,8 @@ class ActorCriticAgent():
 			
 			self.training_stats = []
 
+			#self.last_critic_loss = 1.0
+
 	def to(self, device):
 		if type(device) == str:
 			device = torch.device(device)
@@ -161,7 +163,7 @@ class ActorCriticAgent():
 		#print("in update_policy : batch_returns.requires_grad = ", batch_returns.requires_grad)
 
 		loss_per_trajectory = (torch.log(batch_actions)*batch_returns).sum(dim=-1)
-		loss = -torch.mean(loss_per_trajectory)
+		loss = -torch.mean(loss_per_trajectory)#*0.05/self.last_critic_loss #0.05 is a factor representing the "ideal" loss.
 
 		loss.backward()
 		self.policy_optimizer.step()
@@ -189,6 +191,8 @@ class ActorCriticAgent():
 		self.critic_optimizer.step()
 		self.critic_optimizer.zero_grad()
 		
+		#self.last_critic_loss = loss.item()
+
 		batch_stats[f'{self.player_name}_critic_loss'] = loss.cpu().item()
 
 		del loss

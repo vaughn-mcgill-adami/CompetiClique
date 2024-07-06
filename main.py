@@ -51,6 +51,8 @@ def main():
 	#forbidder.critic = DataParallel(forbidder.critic)
 	
 	training_stats = builder.training_stats
+
+	temperature = 1
 	
 	for batch in range(NUM_BATCHES):
 		builder.train()
@@ -69,6 +71,7 @@ def main():
 																																																				builder.policy, 
 																																																				forbidder.policy, 
 																																																				action_noise,
+																																																				temperature,
 																																																				device)
 		
 		#builder.to(device)
@@ -89,7 +92,7 @@ def main():
 		for key, value in batch_stats.items():
 			print(key, value)
 
-    """
+		"""
 		start_eval = time.time()
 		#builder.to(cpu)
 		#forbidder.to(cpu)
@@ -106,6 +109,8 @@ def main():
 		
 		builder.checkpoint(BUILDERSAVEPATH, training_stats)
 		forbidder.checkpoint(FORBIDDERSAVEPATH, training_stats)
+
+		temperature = 0.9*temperature + 0.1*1
 
 		print()
 		print()
